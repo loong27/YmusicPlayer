@@ -4,6 +4,10 @@ const fs = require('fs/promises');
 const { existsSync, mkdirSync, appendFileSync } = require('fs');
 const { execFile } = require('child_process');
 const mm = require('music-metadata');
+const { CloudApiClient, CloudApiError, serializeCloudError } = require('./cloud-api.cjs');
+const { AiApiClient, serializeAiError } = require('./ai-api.cjs');
+const { createCloudDownloadManager, getDefaultDownloadDirectory } = require('./download-manager.cjs');
+const { safeProvider } = require('./cloud-track.cjs');
 
 const AUDIO_EXT = new Set(['.mp3', '.flac', '.wma', '.wav', '.m4a', '.aac', '.ogg']);
 const LYRIC_EXT = new Set(['.lrc', '.txt']);
@@ -22,6 +26,47 @@ let mainLogFile = '';
 const coverDataUrlCache = new Map();
 let lyricDownloadTarget = null;
 const hookedSessions = new WeakSet();
+let cloudApiClient = null;
+let aiApiClient = null;
+let cloudDownloadManager = null;
+
+const DEFAULT_CLOUD_SETTINGS = {
+  enabled: false,
+  baseUrl: '',
+  apiKey: '',
+  activeProvider: 'qqmusic',
+  enabledProviders: ['qqmusic'],
+  searchMode: 'single',
+  pageSize: 20,
+  scrapeOverwriteMetadata: true,
+  scrapeDownloadLyric: true
+};
+
+const DEFAULT_AI_SETTINGS = {
+  enabled: false,
+  providerType: 'openai',
+  baseUrl: '',
+  apiKey: '',
+  model: '',
+  temperature: 0.2,
+  maxTokens: 1800,
+  timeoutMs: 30000,
+  includeLyricSnippets: true,
+  resolveCloudResults: true,
+  maxLocalRecommendations: 12,
+  maxRemoteRecommendations: 6
+};
+
+const DEFAULT_DOWNLOAD_SETTINGS = {
+  directory: '',
+  quality: 'MP3_320',
+  maxConcurrentTasks: 2,
+  enableSegmentedDownload: true,
+  segmentCount: 4,
+  autoImportAfterDownload: true,
+  autoDownloadLyric: true,
+  autoQualityFallback: true
+};
 
 function resolveAppIconPath() {
   const candidates = [
@@ -180,6 +225,16 @@ function ensureDataShape(raw) {
     scanFolders: [],
     tracks: [],
     playlists: [{ id: 'favorites', name: '我喜欢', fixed: true, trackIds: [] }],
+    listeningHistory: [],
+    discoverCache: {
+      generatedAt: '',
+      summary: '',
+      localRecommendations: [],
+      remoteRecommendations: [],
+      remoteQueries: [],
+      resolvedRemoteQueries: [],
+      warnings: []
+    },
     settings: {
       showLyrics: true,
       minimizedShowLyrics: false,
@@ -190,7 +245,10 @@ function ensureDataShape(raw) {
       backgroundImagePath: '',
       backgroundBlur: 8,
       volume: 0.8,
-      lyricEncodingMap: {}
+      lyricEncodingMap: {},
+      cloud: DEFAULT_CLOUD_SETTINGS,
+      ai: DEFAULT_AI_SETTINGS,
+      download: DEFAULT_DOWNLOAD_SETTINGS
     }
   };
   const merged = {
@@ -201,8 +259,37 @@ function ensureDataShape(raw) {
       ...((raw && raw.settings) || {})
     }
   };
-  if (!Array.isArray(merged.playlists) || !merged.playlists.find((p) => p.id === 'favorites')) {
-    merged.playlists = [{ id: 'favorites', name: '我喜欢', fixed: true, trackIds: [] }, ...(merged.playlists || [])];
+  merged.settings.cloud = {
+    ...DEFAULT_CLOUD_SETTINGS,
+    ...((raw?.settings?.cloud) || {})
+  };
+  merged.settings.ai = {
+    ...DEFAULT_AI_SETTINGS,
+    ...((raw?.settings?.ai) || {})
+  };
+  merged.settings.download = {
+    ...DEFAULT_DOWNLOAD_SETTINGS,
+    ...((raw?.settings?.download) || {})
+  };
+  if (!Array.isArray(merged.settings.cloud.enabledProviders) || !merged.settings.cloud.enabledProviders.length) {
+    merged.settings.cloud.enabledProviders = [merged.settings.cloud.activeProvider || 'qqmusic'];
+  }
+  if (!Array.isArray(merged.listeningHistory)) merged.listeningHistory = [];
+  merged.listeningHistory = merged.listeningHistory.slice(-800);
+  merged.discoverCache = {
+    ...base.discoverCache,
+    ...((raw && raw.discoverCache) || {})
+  };
+  if (!Array.isArray(merged.discoverCache.localRecommendations)) merged.discoverCache.localRecommendations = [];
+  if (!Array.isArray(merged.discoverCache.remoteRecommendations)) merged.discoverCache.remoteRecommendations = [];
+  if (!Array.isArray(merged.discoverCache.remoteQueries)) merged.discoverCache.remoteQueries = [];
+  if (!Array.isArray(merged.discoverCache.resolvedRemoteQueries)) merged.discoverCache.resolvedRemoteQueries = [];
+  if (!Array.isArray(merged.discoverCache.warnings)) merged.discoverCache.warnings = [];
+  const playlistList = Array.isArray(merged.playlists) ? merged.playlists : [];
+  if (!playlistList.find((p) => p.id === 'favorites')) {
+    merged.playlists = [{ id: 'favorites', name: '我喜欢', fixed: true, trackIds: [] }, ...playlistList];
+  } else {
+    merged.playlists = playlistList;
   }
   const trackMap = new Map();
   for (const t of merged.tracks || []) {
@@ -232,7 +319,7 @@ async function loadData() {
 }
 
 async function saveData(data) {
-  await fs.writeFile(userDataFile(), JSON.stringify(data, null, 2), 'utf8');
+  await fs.writeFile(userDataFile(), JSON.stringify(ensureDataShape(data), null, 2), 'utf8');
 }
 
 async function walk(dir, result = []) {
@@ -384,6 +471,350 @@ function findLyricsForAudio(audioFile, lyricFiles) {
   return byContain || null;
 }
 
+function normalizeComparableText(value) {
+  return `${value || ''}`
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/unknown\s+(artist|album|title)/gi, ' ')
+    .replace(/[（(][^）)]*(?:320|128|flac|mp3|无损|高品|标准|伴奏|live|mv|official|hq|sq)[^）)]*[）)]/gi, ' ')
+    .replace(/[【\[][^[\]【】]*(?:320|128|flac|mp3|无损|高品|标准|伴奏|live|mv|official|hq|sq)[^\]【】]*[】\]]/gi, ' ')
+    .replace(/[_-]+/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function compactComparableText(value) {
+  return normalizeComparableText(value).replace(/\s+/g, '');
+}
+
+function isUnknownMetadata(value, fallback = '') {
+  const text = `${value || ''}`.trim();
+  if (!text) return true;
+  const normalized = text.toLowerCase();
+  if (normalized === 'unknown title' || normalized === 'unknown artist' || normalized === 'unknown album') return true;
+  return fallback && compactComparableText(text) === compactComparableText(fallback);
+}
+
+function cleanFileStem(stem) {
+  return `${stem || ''}`
+    .normalize('NFKC')
+    .replace(/[【\[][^[\]【】]*(?:320|128|flac|mp3|无损|高品|标准|hq|sq|mqms|kgm|ncm)[^\]【】]*[】\]]/gi, ' ')
+    .replace(/[（(][^）)]*(?:320|128|flac|mp3|无损|高品|标准|hq|sq|mqms|kgm|ncm)[^）)]*[）)]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function splitArtistTitleFromStem(stem) {
+  const clean = cleanFileStem(stem);
+  const match = clean.match(/^(.{1,80}?)(?:\s+-\s+|\s+–\s+|\s+—\s+|_+)(.{1,120})$/);
+  if (!match) return { artist: '', title: clean };
+  return { artist: match[1].trim(), title: match[2].trim() };
+}
+
+function uniqueNonEmpty(values) {
+  const seen = new Set();
+  const out = [];
+  for (const value of values) {
+    const text = `${value || ''}`.replace(/\s+/g, ' ').trim();
+    const key = compactComparableText(text);
+    if (!text || !key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+}
+
+function buildScrapeProfile(track) {
+  const stem = path.parse(track?.path || '').name;
+  const split = splitArtistTitleFromStem(stem);
+  const rawTitle = `${track?.title || ''}`.trim();
+  const rawArtist = `${track?.artist || ''}`.trim();
+  const title = isUnknownMetadata(rawTitle, stem) ? split.title : rawTitle;
+  const artist = isUnknownMetadata(rawArtist) ? split.artist : rawArtist;
+  return {
+    title,
+    artist,
+    album: isUnknownMetadata(track?.album) ? '' : `${track?.album || ''}`.trim(),
+    duration: Number(track?.duration) || 0,
+    stem: cleanFileStem(stem),
+    split
+  };
+}
+
+function buildScrapeQueries(track) {
+  const profile = buildScrapeProfile(track);
+  return uniqueNonEmpty([
+    profile.artist && profile.title ? `${profile.artist} ${profile.title}` : '',
+    profile.split.artist && profile.split.title ? `${profile.split.artist} ${profile.split.title}` : '',
+    profile.title,
+    profile.stem
+  ]).slice(0, 4);
+}
+
+function tokenOverlapScore(a, b, weight) {
+  const tokens = normalizeComparableText(a).split(' ').filter((token) => token.length > 1);
+  if (!tokens.length) return 0;
+  const target = compactComparableText(b);
+  if (!target) return 0;
+  const matched = tokens.filter((token) => target.includes(compactComparableText(token))).length;
+  return Math.round((matched / tokens.length) * weight);
+}
+
+function textMatchScore(expected, actual, exactWeight, containWeight, overlapWeight) {
+  const a = compactComparableText(expected);
+  const b = compactComparableText(actual);
+  if (!a || !b) return 0;
+  if (a === b) return exactWeight;
+  if (a.includes(b) || b.includes(a)) return containWeight;
+  return tokenOverlapScore(expected, actual, overlapWeight);
+}
+
+function scoreScrapeCandidate(track, candidate) {
+  if (!candidate?.remoteId) return -999;
+  const profile = buildScrapeProfile(track);
+  const titleScore = Math.max(
+    textMatchScore(profile.title, candidate.title, 48, 34, 22),
+    textMatchScore(profile.stem, `${candidate.artist} ${candidate.title}`, 38, 28, 18),
+    textMatchScore(profile.split.title, candidate.title, 44, 30, 18)
+  );
+  const artistScore = Math.max(
+    textMatchScore(profile.artist, candidate.artist, 26, 18, 12),
+    textMatchScore(profile.split.artist, candidate.artist, 22, 15, 10)
+  );
+  const albumScore = textMatchScore(profile.album, candidate.album, 8, 5, 3);
+  let durationScore = 0;
+  if (profile.duration > 0 && candidate.duration > 0) {
+    const diff = Math.abs(profile.duration - candidate.duration);
+    if (diff <= 2) durationScore = 24;
+    else if (diff <= 5) durationScore = 18;
+    else if (diff <= 10) durationScore = 10;
+    else if (diff <= 20) durationScore = 3;
+    else durationScore = -14;
+  }
+  const providerBonus = candidate.provider === track?.cloudMatch?.provider ? 4 : 0;
+  return titleScore + artistScore + albumScore + durationScore + providerBonus;
+}
+
+function shouldUpdateMetadataField(track, field, nextValue, overwriteMetadata) {
+  const next = field === 'duration' ? Number(nextValue) : `${nextValue || ''}`.trim();
+  if (field === 'duration') return Number.isFinite(next) && next > 0 && (overwriteMetadata || !(Number(track?.duration) > 0));
+  if (!next || /^unknown\s+/i.test(next)) return false;
+  if (overwriteMetadata) return `${track?.[field] || ''}`.trim() !== next;
+  const stem = field === 'title' ? path.parse(track?.path || '').name : '';
+  return isUnknownMetadata(track?.[field], stem);
+}
+
+function mergeCloudScrapeFields(parsedTrack, previousTrack) {
+  if (!previousTrack || previousTrack.metadataSource !== 'cloud') return parsedTrack;
+  return {
+    ...parsedTrack,
+    title: previousTrack.title || parsedTrack.title,
+    artist: previousTrack.artist || parsedTrack.artist,
+    album: previousTrack.album || parsedTrack.album,
+    duration: previousTrack.duration || parsedTrack.duration,
+    albumPicUrl: previousTrack.albumPicUrl || parsedTrack.albumPicUrl,
+    publishTime: previousTrack.publishTime || parsedTrack.publishTime,
+    cloudMatch: previousTrack.cloudMatch || parsedTrack.cloudMatch,
+    metadataSource: previousTrack.metadataSource,
+    scrapedAt: previousTrack.scrapedAt || parsedTrack.scrapedAt
+  };
+}
+
+function buildLyricText(lyric) {
+  const lrc = `${lyric?.lrc || ''}`.trim();
+  if (lrc) return `${lrc}\n`;
+  const trans = `${lyric?.trans || ''}`.trim();
+  return trans ? `${trans}\n` : '';
+}
+
+async function writeScrapedLyric(track, lyric, { overwriteLyric = true } = {}) {
+  const text = buildLyricText(lyric);
+  if (!text.trim()) return { lyricPath: track.lyricPath || '', downloaded: false };
+  if (track.lyricPath && !overwriteLyric && existsSync(track.lyricPath)) {
+    return { lyricPath: track.lyricPath, downloaded: false };
+  }
+  const parsed = path.parse(track.path);
+  const lyricPath = path.join(parsed.dir, `${parsed.name}.lrc`);
+  await fs.writeFile(lyricPath, text, 'utf8');
+  return { lyricPath, downloaded: true };
+}
+
+async function findBestCloudMatchForTrack(track, options = {}) {
+  const cfg = {
+    ...DEFAULT_CLOUD_SETTINGS,
+    ...(options.cloudSettings || {}),
+    ...(options.config || {})
+  };
+  const queries = buildScrapeQueries(track);
+  if (!queries.length) {
+    throw new CloudApiError('缺少可用于匹配的歌曲名或文件名', { code: 'MISSING_SCRAPE_QUERY' });
+  }
+  const activeProvider = safeProvider(options.provider || cfg.activeProvider);
+  const providers = options.providers || cfg.enabledProviders;
+  const searchMode = options.searchMode || cfg.searchMode || 'single';
+  const pageSize = Math.max(5, Math.min(30, Number(options.pageSize || cfg.pageSize) || 20));
+  const client = getCloudApiClient();
+  const candidates = new Map();
+  const errors = [];
+  for (const query of queries) {
+    try {
+      const result = await client.searchSongs({
+        query,
+        page: 1,
+        pageSize,
+        provider: activeProvider,
+        providers,
+        searchMode,
+        config: cfg
+      });
+      for (const item of result.items || []) {
+        const key = `${item.provider}:${item.remoteId}`;
+        if (!item.remoteId || candidates.has(key)) continue;
+        candidates.set(key, item);
+      }
+    } catch (error) {
+      errors.push(error?.message || String(error));
+    }
+  }
+  let best = null;
+  let bestScore = -999;
+  for (const candidate of candidates.values()) {
+    const score = scoreScrapeCandidate(track, candidate);
+    if (score > bestScore) {
+      best = candidate;
+      bestScore = score;
+    }
+  }
+  const threshold = Number(options.minScore ?? 56);
+  if (!best || bestScore < threshold) {
+    throw new CloudApiError(errors[0] || '未找到可信的云端匹配歌曲', {
+      code: 'NO_SCRAPE_MATCH',
+      data: { queries, bestScore, threshold }
+    });
+  }
+  return { match: best, score: bestScore, queries };
+}
+
+async function scrapeTrackWithData(data, targetTrack, options = {}) {
+  const trackId = `${options.trackId || targetTrack?.id || ''}`;
+  const targetPath = `${options.path || targetTrack?.path || ''}`.replaceAll('\\', '/');
+  const idx = (data.tracks || []).findIndex((track) => (trackId && track.id === trackId) || (targetPath && normalizeId(track.path) === normalizeId(targetPath)));
+  if (idx < 0) throw new CloudApiError('未找到本地歌曲', { code: 'TRACK_NOT_FOUND' });
+  const current = data.tracks[idx];
+  if (!current?.path || !existsSync(current.path)) throw new CloudApiError('本地歌曲文件不存在', { code: 'TRACK_FILE_NOT_FOUND' });
+
+  const cloudSettings = {
+    ...DEFAULT_CLOUD_SETTINGS,
+    ...(data.settings?.cloud || {}),
+    ...(options.config || {})
+  };
+  const overwriteMetadata = options.overwriteMetadata ?? cloudSettings.scrapeOverwriteMetadata !== false;
+  const downloadLyric = options.downloadLyric ?? cloudSettings.scrapeDownloadLyric !== false;
+  const overwriteLyric = options.overwriteLyric ?? true;
+  const { match, score, queries } = await findBestCloudMatchForTrack(current, {
+    ...options,
+    cloudSettings,
+    config: cloudSettings
+  });
+
+  let detailTrack = match;
+  try {
+    const detail = await getCloudApiClient().getSongDetail({ provider: match.provider, songId: match.remoteId, config: cloudSettings });
+    detailTrack = detail?.track?.remoteId ? detail.track : match;
+  } catch (error) {
+    logMain('WARN', 'cloud scrape detail failed', { trackId: current.id, error: error?.message || String(error) });
+  }
+
+  let lyricResult = { lyricPath: current.lyricPath || '', downloaded: false };
+  let lyric = null;
+  if (downloadLyric) {
+    try {
+      lyric = await getCloudApiClient().getSongLyric({ provider: detailTrack.provider, songId: detailTrack.remoteId, config: cloudSettings });
+      lyricResult = await writeScrapedLyric(current, lyric, { overwriteLyric });
+    } catch (error) {
+      logMain('WARN', 'cloud scrape lyric failed', { trackId: current.id, error: error?.message || String(error) });
+    }
+  }
+
+  const updatedFields = [];
+  const nextTrack = { ...current };
+  for (const [field, value] of [
+    ['title', detailTrack.title],
+    ['artist', detailTrack.artist],
+    ['album', detailTrack.album],
+    ['duration', detailTrack.duration]
+  ]) {
+    if (!shouldUpdateMetadataField(current, field, value, overwriteMetadata)) continue;
+    nextTrack[field] = field === 'duration' ? Number(value) : `${value}`.trim();
+    updatedFields.push(field);
+  }
+  if (detailTrack.albumPicUrl) nextTrack.albumPicUrl = detailTrack.albumPicUrl;
+  if (detailTrack.publishTime) nextTrack.publishTime = detailTrack.publishTime;
+  if (lyricResult.lyricPath) nextTrack.lyricPath = lyricResult.lyricPath;
+  nextTrack.metadataSource = 'cloud';
+  nextTrack.scrapedAt = new Date().toISOString();
+  nextTrack.cloudMatch = {
+    provider: detailTrack.provider,
+    remoteId: detailTrack.remoteId,
+    title: detailTrack.title,
+    artist: detailTrack.artist,
+    album: detailTrack.album,
+    duration: detailTrack.duration,
+    score,
+    queries
+  };
+  data.tracks[idx] = nextTrack;
+  return {
+    track: nextTrack,
+    match: nextTrack.cloudMatch,
+    score,
+    updatedFields,
+    lyricPath: lyricResult.lyricPath || '',
+    lyricDownloaded: lyricResult.downloaded,
+    lyricAvailable: !!buildLyricText(lyric).trim()
+  };
+}
+
+async function scrapeCloudTrack(payload = {}) {
+  const data = await loadData();
+  const result = await scrapeTrackWithData(data, null, payload);
+  await saveData(data);
+  return result;
+}
+
+async function scrapeCloudLibrary(payload = {}) {
+  const data = await loadData();
+  const onlyMissingLyric = payload.onlyMissingLyric === true;
+  const limit = Math.max(1, Math.min(Number(payload.limit) || data.tracks.length || 1, data.tracks.length || 1));
+  const targets = (data.tracks || [])
+    .filter((track) => !onlyMissingLyric || !track.lyricPath)
+    .slice(0, limit);
+  const results = [];
+  const errors = [];
+  for (const track of targets) {
+    try {
+      const result = await scrapeTrackWithData(data, track, {
+        ...payload,
+        trackId: track.id,
+        overwriteLyric: payload.overwriteLyric ?? !track.lyricPath
+      });
+      results.push(result);
+    } catch (error) {
+      errors.push({ trackId: track.id, title: track.title, message: error?.message || String(error) });
+    }
+  }
+  if (results.length) await saveData(data);
+  return {
+    total: targets.length,
+    updated: results.length,
+    failed: errors.length,
+    results,
+    errors,
+    tracks: data.tracks
+  };
+}
+
 async function parseTrack(file, lyricFiles) {
   let metadata = null;
   try {
@@ -422,6 +853,7 @@ async function scanFolders(folders, prevData) {
   const audioFiles = normalized.filter((f) => AUDIO_EXT.has(path.extname(f).toLowerCase()));
 
   const prevLiked = new Set((prevData.tracks || []).filter((t) => t.liked).map((t) => t.id));
+  const prevTrackById = new Map((prevData.tracks || []).filter((t) => t?.id).map((t) => [t.id, t]));
   const uniqAudioById = new Map();
   for (const af of audioFiles) {
     const id = normalizeId(af);
@@ -430,7 +862,8 @@ async function scanFolders(folders, prevData) {
 
   const tracks = [];
   for (const af of uniqAudioById.values()) {
-    const track = await parseTrack(af, lyricFiles);
+    let track = await parseTrack(af, lyricFiles);
+    track = mergeCloudScrapeFields(track, prevTrackById.get(track.id));
     track.liked = prevLiked.has(track.id);
     tracks.push(track);
   }
@@ -454,6 +887,238 @@ async function scanFolders(folders, prevData) {
     tracks,
     playlists: [favorites, ...otherPlaylists]
   };
+}
+
+async function importTrackFromFile(trackPath) {
+  const normalizedTrackPath = `${trackPath || ''}`.replaceAll('\\\\', '/');
+  if (!normalizedTrackPath || !existsSync(normalizedTrackPath)) return null;
+  const data = await loadData();
+  const files = await walk(path.dirname(normalizedTrackPath));
+  const normalized = files.map((f) => f.replaceAll('\\\\', '/'));
+  const lyricFiles = normalized.filter((f) => LYRIC_EXT.has(path.extname(f).toLowerCase()));
+  let track = await parseTrack(normalizedTrackPath, lyricFiles);
+  const idx = data.tracks.findIndex((t) => t.id === track.id);
+  if (idx >= 0) {
+    track = mergeCloudScrapeFields(track, data.tracks[idx]);
+    track.liked = data.tracks[idx].liked;
+    data.tracks[idx] = track;
+  } else {
+    data.tracks.push(track);
+  }
+  await saveData(data);
+  return track;
+}
+
+function getCloudApiClient() {
+  if (!cloudApiClient) {
+    cloudApiClient = new CloudApiClient({
+      getConfig: async () => {
+        const data = await loadData();
+        return {
+          ...DEFAULT_CLOUD_SETTINGS,
+          ...(data.settings?.cloud || {})
+        };
+      },
+      fetchImpl: fetch
+    });
+  }
+  return cloudApiClient;
+}
+
+function getAiApiClient() {
+  if (!aiApiClient) {
+    aiApiClient = new AiApiClient({
+      getConfig: async () => {
+        const data = await loadData();
+        return {
+          ...DEFAULT_AI_SETTINGS,
+          ...(data.settings?.ai || {})
+        };
+      },
+      fetchImpl: fetch
+    });
+  }
+  return aiApiClient;
+}
+
+function scoreRemoteRecommendationCandidate(query, candidate) {
+  if (!candidate?.remoteId) return -999;
+  const titleScore = Math.max(
+    textMatchScore(query?.title, candidate.title, 48, 34, 20),
+    textMatchScore(query?.searchQuery, `${candidate.artist} ${candidate.title}`, 28, 18, 12)
+  );
+  const artistScore = textMatchScore(query?.artist, candidate.artist, 28, 18, 10);
+  const albumScore = textMatchScore(query?.album, candidate.album, 8, 5, 3);
+  return titleScore + artistScore + albumScore;
+}
+
+async function resolveAiRemoteRecommendations(remoteQueries, data, payload = {}) {
+  const cloudSettings = {
+    ...DEFAULT_CLOUD_SETTINGS,
+    ...(data.settings?.cloud || {}),
+    ...(payload.cloudConfig || {})
+  };
+  const queries = Array.isArray(remoteQueries) ? remoteQueries : [];
+  if (!queries.length) return { remoteRecommendations: [], resolvedQueries: [], warnings: [] };
+  if (!cloudSettings.enabled || !cloudSettings.baseUrl || !cloudSettings.apiKey) {
+    return { remoteRecommendations: [], resolvedQueries: [], warnings: ['云音乐未配置，已保留 AI 云端候选但未自动解析'] };
+  }
+  const warnings = [];
+  const remoteRecommendations = [];
+  const resolvedQueries = [];
+  const seenResolved = new Set();
+  const pageSize = Math.max(5, Math.min(30, Number(cloudSettings.pageSize) || 20));
+  for (const query of queries) {
+    const searchQuery = `${query.searchQuery || [query.artist, query.title].filter(Boolean).join(' ')}`.trim();
+    if (!searchQuery) continue;
+    try {
+      const result = await getCloudApiClient().searchSongs({
+        query: searchQuery,
+        page: 1,
+        pageSize,
+        provider: cloudSettings.activeProvider,
+        providers: cloudSettings.enabledProviders,
+        searchMode: cloudSettings.searchMode,
+        config: cloudSettings
+      });
+      let best = null;
+      let bestScore = -999;
+      for (const item of result.items || []) {
+        const score = scoreRemoteRecommendationCandidate({ ...query, searchQuery }, item);
+        if (score > bestScore) {
+          best = item;
+          bestScore = score;
+        }
+      }
+      if (best && bestScore >= 42) {
+        const queryRecord = { ...query, searchQuery };
+        const resolvedKey = `${best.provider || ''}:${best.remoteId || ''}`;
+        resolvedQueries.push(queryRecord);
+        if (seenResolved.has(resolvedKey)) continue;
+        seenResolved.add(resolvedKey);
+        remoteRecommendations.push({
+          query: queryRecord,
+          reason: query.reason || '',
+          evidence: query.evidence || [],
+          confidence: Math.max(0, Math.min(1, Number(query.confidence) || 0)),
+          matchScore: bestScore,
+          track: best,
+          alternatives: []
+        });
+      } else {
+        warnings.push(`未找到可信云端匹配：${searchQuery}`);
+      }
+    } catch (error) {
+      warnings.push(`云端解析失败：${searchQuery} · ${error?.message || '未知错误'}`);
+    }
+  }
+  return { remoteRecommendations, resolvedQueries, warnings };
+}
+
+function normalizeAiResultText(value) {
+  return `${value || ''}`.replace(/\s+/g, ' ').trim();
+}
+
+function validateDiscoverAiResult(result) {
+  const warnings = [...(Array.isArray(result?.warnings) ? result.warnings : [])];
+  const remoteQueries = [];
+  const seenRemote = new Set();
+  for (const query of Array.isArray(result?.remoteQueries) ? result.remoteQueries : []) {
+    const title = normalizeAiResultText(query?.title);
+    const artist = normalizeAiResultText(query?.artist);
+    const album = normalizeAiResultText(query?.album);
+    const searchQuery = normalizeAiResultText(query?.searchQuery || [artist, title].filter(Boolean).join(' '));
+    const key = `${artist}|${title}|${searchQuery}`.toLowerCase();
+    if (!searchQuery || seenRemote.has(key)) continue;
+    seenRemote.add(key);
+    remoteQueries.push({
+      ...query,
+      title,
+      artist,
+      album,
+      searchQuery,
+      reason: normalizeAiResultText(query?.reason),
+      evidence: (Array.isArray(query?.evidence) ? query.evidence : []).map(normalizeAiResultText).filter(Boolean).slice(0, 6),
+      confidence: Math.max(0, Math.min(1, Number(query?.confidence) || 0))
+    });
+  }
+  return { ...result, localRecommendations: [], remoteQueries, warnings };
+}
+
+async function recommendDiscoverSongs(payload = {}) {
+  const data = await loadData();
+  const aiSettings = {
+    ...DEFAULT_AI_SETTINGS,
+    ...(data.settings?.ai || {}),
+    ...(payload.config || {})
+  };
+  const limits = {
+    ...(payload.limits || {}),
+    maxLocalRecommendations: 0,
+    maxRemoteRecommendations: payload.limits?.maxRemoteRecommendations ?? aiSettings.maxRemoteRecommendations
+  };
+  const raw = await getAiApiClient().recommendSongs({
+    ...payload,
+    config: aiSettings,
+    limits
+  });
+  const checked = validateDiscoverAiResult(raw);
+  const resolved = aiSettings.resolveCloudResults !== false
+    ? await resolveAiRemoteRecommendations(checked.remoteQueries, data, payload)
+    : { remoteRecommendations: [], resolvedQueries: [], warnings: [] };
+  return {
+    generatedAt: new Date().toISOString(),
+    model: raw.model,
+    latencyMs: raw.latencyMs,
+    summary: checked.summary,
+    localRecommendations: [],
+    remoteQueries: checked.remoteQueries,
+    resolvedRemoteQueries: resolved.resolvedQueries || [],
+    remoteRecommendations: resolved.remoteRecommendations,
+    warnings: [...checked.warnings, ...resolved.warnings]
+  };
+}
+
+async function getDownloadSettings() {
+  const data = await loadData();
+  return {
+    ...DEFAULT_DOWNLOAD_SETTINGS,
+    ...(data.settings?.download || {})
+  };
+}
+
+function getCloudDownloadManagerInstance() {
+  if (!cloudDownloadManager) {
+    cloudDownloadManager = createCloudDownloadManager({
+      app,
+      cloudApi: getCloudApiClient(),
+      getSettings: getDownloadSettings,
+      importTrackFromFile,
+      sendEvent: (channel, payload) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(channel, payload);
+        }
+      },
+      log: logMain
+    });
+  }
+  return cloudDownloadManager;
+}
+
+async function cloudIpcResult(work) {
+  try {
+    return { ok: true, data: await work() };
+  } catch (error) {
+    return { ok: false, error: serializeCloudError(error) };
+  }
+}
+
+async function aiIpcResult(work) {
+  try {
+    return { ok: true, data: await work() };
+  } catch (error) {
+    return { ok: false, error: serializeAiError(error) };
+  }
 }
 
 function createWindow() {
@@ -754,6 +1419,14 @@ ipcMain.handle('dialog:pickLyricFile', async () => {
   return result.filePaths[0];
 });
 
+ipcMain.handle('dialog:pickDownloadDirectory', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory']
+  });
+  if (result.canceled || !result.filePaths?.length) return null;
+  return result.filePaths[0];
+});
+
 ipcMain.handle('data:load', async () => loadData());
 ipcMain.handle('data:save', async (_, data) => saveData(data));
 ipcMain.handle('scan:folders', async (_, folders) => {
@@ -764,21 +1437,76 @@ ipcMain.handle('scan:folders', async (_, folders) => {
 });
 
 ipcMain.handle('scan:singleTrack', async (_, trackPath) => {
-  const data = await loadData();
-  const files = await walk(path.dirname(trackPath));
-  const normalized = files.map((f) => f.replaceAll('\\\\', '/'));
-  const lyricFiles = normalized.filter((f) => LYRIC_EXT.has(path.extname(f).toLowerCase()));
-  const track = await parseTrack(trackPath.replaceAll('\\\\', '/'), lyricFiles);
-
-  const idx = data.tracks.findIndex((t) => t.id === track.id);
-  if (idx >= 0) {
-    track.liked = data.tracks[idx].liked;
-    data.tracks[idx] = track;
-  }
-
-  await saveData(data);
-  return track;
+  return importTrackFromFile(trackPath);
 });
+
+ipcMain.handle('cloud:testConnection', async (_, config) => cloudIpcResult(async () => {
+  return getCloudApiClient().testConnection(config || {});
+}));
+
+ipcMain.handle('ai:testConnection', async (_, config) => aiIpcResult(async () => {
+  return getAiApiClient().testConnection(config || {});
+}));
+
+ipcMain.handle('ai:recommendDiscoverSongs', async (_, payload) => aiIpcResult(async () => {
+  return recommendDiscoverSongs(payload || {});
+}));
+
+ipcMain.handle('cloud:getDefaultDownloadDirectory', async () => {
+  return getDefaultDownloadDirectory(app);
+});
+
+ipcMain.handle('cloud:searchSongs', async (_, payload) => cloudIpcResult(async () => {
+  return getCloudApiClient().searchSongs(payload || {});
+}));
+
+ipcMain.handle('cloud:getSongDetail', async (_, payload) => cloudIpcResult(async () => {
+  return getCloudApiClient().getSongDetail(payload || {});
+}));
+
+ipcMain.handle('cloud:getSongUrl', async (_, payload) => cloudIpcResult(async () => {
+  return getCloudApiClient().getSongUrl(payload || {});
+}));
+
+ipcMain.handle('cloud:getSongLyric', async (_, payload) => cloudIpcResult(async () => {
+  return getCloudApiClient().getSongLyric(payload || {});
+}));
+
+ipcMain.handle('cloud:scrapeTrack', async (_, payload) => cloudIpcResult(async () => {
+  return scrapeCloudTrack(payload || {});
+}));
+
+ipcMain.handle('cloud:scrapeLibrary', async (_, payload) => cloudIpcResult(async () => {
+  return scrapeCloudLibrary(payload || {});
+}));
+
+ipcMain.handle('cloud:readImageDataUrl', async (_, imageUrl) => cloudIpcResult(async () => {
+  return getCloudApiClient().fetchImageDataUrl(imageUrl);
+}));
+
+ipcMain.handle('cloud:downloadSong', async (_, payload) => cloudIpcResult(async () => {
+  return getCloudDownloadManagerInstance().start(payload || {});
+}));
+
+ipcMain.handle('cloud:getDownloadTasks', async () => cloudIpcResult(async () => {
+  return getCloudDownloadManagerInstance().list();
+}));
+
+ipcMain.handle('cloud:pauseDownload', async (_, taskId) => cloudIpcResult(async () => {
+  return getCloudDownloadManagerInstance().pause(taskId);
+}));
+
+ipcMain.handle('cloud:resumeDownload', async (_, taskId) => cloudIpcResult(async () => {
+  return getCloudDownloadManagerInstance().resume(taskId);
+}));
+
+ipcMain.handle('cloud:cancelDownload', async (_, taskId) => cloudIpcResult(async () => {
+  return getCloudDownloadManagerInstance().cancel(taskId);
+}));
+
+ipcMain.handle('cloud:deleteDownloadTask', async (_, taskId) => cloudIpcResult(async () => {
+  return getCloudDownloadManagerInstance().deleteTask(taskId);
+}));
 
 ipcMain.handle('file:readText', async (_, filePath) => {
   try {

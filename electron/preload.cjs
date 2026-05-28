@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   pickFolders: () => ipcRenderer.invoke('dialog:pickFolders'),
   pickBackgroundImage: () => ipcRenderer.invoke('dialog:pickBackgroundImage'),
   pickLyricFile: () => ipcRenderer.invoke('dialog:pickLyricFile'),
+  pickDownloadDirectory: () => ipcRenderer.invoke('dialog:pickDownloadDirectory'),
   loadData: () => ipcRenderer.invoke('data:load'),
   saveData: (payload) => ipcRenderer.invoke('data:save', payload),
   scanFolders: (folders) => ipcRenderer.invoke('scan:folders', folders),
@@ -21,6 +22,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showItemInFolder: (filePath) => ipcRenderer.invoke('file:showInFolder', filePath),
   openExternal: (url) => ipcRenderer.invoke('external:open', url),
   readAudioBuffer: (filePath) => ipcRenderer.invoke('audio:readBuffer', filePath),
+  testAiConnection: (config) => ipcRenderer.invoke('ai:testConnection', config),
+  recommendDiscoverSongs: (payload) => ipcRenderer.invoke('ai:recommendDiscoverSongs', payload),
+  testCloudConnection: (config) => ipcRenderer.invoke('cloud:testConnection', config),
+  getDefaultDownloadDirectory: () => ipcRenderer.invoke('cloud:getDefaultDownloadDirectory'),
+  searchCloudSongs: (payload) => ipcRenderer.invoke('cloud:searchSongs', payload),
+  getCloudSongDetail: (payload) => ipcRenderer.invoke('cloud:getSongDetail', payload),
+  getCloudSongUrl: (payload) => ipcRenderer.invoke('cloud:getSongUrl', payload),
+  getCloudSongLyric: (payload) => ipcRenderer.invoke('cloud:getSongLyric', payload),
+  scrapeCloudTrack: (payload) => ipcRenderer.invoke('cloud:scrapeTrack', payload),
+  scrapeCloudLibrary: (payload) => ipcRenderer.invoke('cloud:scrapeLibrary', payload),
+  readCloudImageDataUrl: (url) => ipcRenderer.invoke('cloud:readImageDataUrl', url),
+  downloadCloudSong: (payload) => ipcRenderer.invoke('cloud:downloadSong', payload),
+  getCloudDownloadTasks: () => ipcRenderer.invoke('cloud:getDownloadTasks'),
+  pauseCloudDownload: (taskId) => ipcRenderer.invoke('cloud:pauseDownload', taskId),
+  resumeCloudDownload: (taskId) => ipcRenderer.invoke('cloud:resumeDownload', taskId),
+  cancelCloudDownload: (taskId) => ipcRenderer.invoke('cloud:cancelDownload', taskId),
+  deleteCloudDownloadTask: (taskId) => ipcRenderer.invoke('cloud:deleteDownloadTask', taskId),
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowToggleMaximize: () => ipcRenderer.invoke('window:toggleMaximize'),
   windowIsMaximized: () => ipcRenderer.invoke('window:isMaximized'),
@@ -38,6 +56,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (_, payload) => cb(payload);
     ipcRenderer.on('lyrics:downloaded', handler);
     return () => ipcRenderer.removeListener('lyrics:downloaded', handler);
+  },
+  onCloudDownloadProgress: (cb) => {
+    const handler = (_, payload) => cb(payload);
+    ipcRenderer.on('cloud:download-progress', handler);
+    return () => ipcRenderer.removeListener('cloud:download-progress', handler);
+  },
+  onCloudDownloadDone: (cb) => {
+    const handler = (_, payload) => cb(payload);
+    ipcRenderer.on('cloud:download-done', handler);
+    return () => ipcRenderer.removeListener('cloud:download-done', handler);
   },
   onCloseBehaviorUpdated: (cb) => {
     const handler = (_, behavior) => cb(behavior);

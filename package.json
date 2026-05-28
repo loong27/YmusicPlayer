@@ -1,6 +1,6 @@
 {
   "name": "ymusicplayer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Cross-platform local music player built with Electron + React",
   "author": {
     "name": "Eric",

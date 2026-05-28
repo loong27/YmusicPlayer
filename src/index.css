@@ -98,3 +98,25 @@ body {
 .dark .apple-pointer {
   cursor: pointer;
 }
+
+.discover-page {
+  color: rgba(0, 0, 0, 0.85);
+}
+
+.dark .discover-page {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.dark .discover-page [class*="text-black/"] {
+  color: rgba(255, 255, 255, 0.72) !important;
+}
+
+.dark .discover-page .discover-strong,
+.dark .discover-page [class*="font-medium"],
+.dark .discover-page [class*="font-semibold"] {
+  color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.dark .discover-page [class*="bg-white/"] {
+  background-color: rgba(30, 30, 30, 0.5) !important;
+}
