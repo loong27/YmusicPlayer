@@ -1,0 +1,6 @@
+.npm-cache/
+app/node_modules/
+app/.gradle/
+app/android/.gradle/
+app/android/app/build/
+app/android/build/

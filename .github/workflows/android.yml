@@ -1,0 +1,98 @@
+name: Android
+
+on:
+  pull_request:
+    paths:
+      - "Android/app/**"
+      - ".github/workflows/android.yml"
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+    paths:
+      - "Android/app/**"
+      - ".github/workflows/android.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Android/app/package-lock.json
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "ndk;27.1.12297006"
+
+      - name: Install JavaScript dependencies
+        working-directory: Android/app
+        run: npm ci
+
+      - name: Run lint
+        working-directory: Android/app
+        run: npm run lint
+
+      - name: Run tests
+        working-directory: Android/app
+        run: npm test -- --runInBand
+
+      - name: Run TypeScript check
+        working-directory: Android/app
+        run: npx tsc --noEmit
+
+      - name: Build debug and release APKs
+        working-directory: Android/app/android
+        run: ./gradlew assembleDebug assembleRelease
+
+      - name: Prepare APK artifacts
+        run: |
+          mkdir -p artifacts
+          cp Android/app/android/app/build/outputs/apk/debug/app-debug.apk artifacts/YMusicPlayerAndroid-${{ github.run_number }}-debug.apk
+          cp Android/app/android/app/build/outputs/apk/release/app-release.apk artifacts/YMusicPlayerAndroid-${{ github.run_number }}-release.apk
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apks-${{ github.run_number }}
+          path: artifacts/*.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" artifacts/*.apk \
+            --title "YMusicPlayerAndroid ${{ github.ref_name }}" \
+            --notes "Android APK build for ${{ github.ref_name }}."
