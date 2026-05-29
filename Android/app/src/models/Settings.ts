@@ -37,8 +37,15 @@ export type DownloadSettings = {
   autoQualityFallback: boolean;
 };
 
+export type AndroidMvpSettings = {
+  librarySort: string;
+  minAudioDurationMs: number;
+  restoreQueueOnLaunch: boolean;
+};
+
 export type AppSettings = {
   themeMode: ThemeMode;
+  androidMvp: AndroidMvpSettings;
   cloud: CloudSettings;
   ai: AiSettings;
   download: DownloadSettings;

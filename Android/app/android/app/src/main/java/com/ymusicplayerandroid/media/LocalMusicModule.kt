@@ -20,7 +20,7 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
   override fun getName(): String = "LocalMusic"
 
   @ReactMethod
-  fun scanAudio(promise: Promise) {
+  fun scanAudio(options: com.facebook.react.bridge.ReadableMap?, promise: Promise) {
     if (!hasAudioPermission()) {
       promise.reject("E_PERMISSION_DENIED", "Local music permission has not been granted.")
       return
@@ -28,7 +28,12 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
 
     executor.execute {
       try {
-        promise.resolve(queryAudio())
+        val minDurationMs = if (options != null && options.hasKey("minDurationMs")) {
+          options.getDouble("minDurationMs").toLong()
+        } else {
+          DEFAULT_MIN_DURATION_MS
+        }
+        promise.resolve(queryAudio(minDurationMs))
       } catch (error: Exception) {
         promise.reject("E_QUERY_FAILED", "Failed to query local audio MediaStore.", error)
       }
@@ -45,7 +50,7 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
     return reactContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
   }
 
-  private fun queryAudio(): WritableNativeArray {
+  private fun queryAudio(minDurationMs: Long): WritableNativeArray {
     val resolver = reactContext.contentResolver
     val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
     val projection = mutableListOf(
@@ -58,6 +63,8 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
       MediaStore.Audio.Media.SIZE,
       MediaStore.Audio.Media.MIME_TYPE,
       MediaStore.Audio.Media.DATE_MODIFIED,
+      MediaStore.Audio.Media.TRACK,
+      MediaStore.Audio.Media.YEAR,
     )
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -65,10 +72,11 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
     }
 
     val tracks = WritableNativeArray()
-    val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+    val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0 AND ${MediaStore.Audio.Media.DURATION} > ?"
+    val selectionArgs = arrayOf(minDurationMs.toString())
     val sortOrder = "${MediaStore.Audio.Media.DATE_MODIFIED} DESC"
 
-    resolver.query(collection, projection.toTypedArray(), selection, null, sortOrder)?.use { cursor ->
+    resolver.query(collection, projection.toTypedArray(), selection, selectionArgs, sortOrder)?.use { cursor ->
       val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
       val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
       val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
@@ -78,6 +86,8 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
       val sizeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
       val mimeTypeColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.MIME_TYPE)
       val dateModifiedColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
+      val trackColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TRACK)
+      val yearColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.YEAR)
       val relativePathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
         cursor.getColumnIndex(MediaStore.Audio.Media.RELATIVE_PATH)
       } else {
@@ -109,6 +119,12 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
         if (!cursor.isNull(dateModifiedColumn)) {
           map.putDouble("dateModified", cursor.getLong(dateModifiedColumn).toDouble())
         }
+        if (!cursor.isNull(trackColumn)) {
+          map.putInt("trackNumber", cursor.getInt(trackColumn))
+        }
+        if (!cursor.isNull(yearColumn)) {
+          map.putInt("year", cursor.getInt(yearColumn))
+        }
         if (relativePathColumn >= 0 && !cursor.isNull(relativePathColumn)) {
           map.putString("relativePath", cursor.getString(relativePathColumn))
         }
@@ -121,6 +137,7 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
   }
 
   companion object {
+    private const val DEFAULT_MIN_DURATION_MS = 30_000L
     private val ALBUM_ART_URI: Uri = Uri.parse("content://media/external/audio/albumart")
   }
 }

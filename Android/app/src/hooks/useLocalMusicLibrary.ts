@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Track } from '../models/Track';
+import { loadLibraryCache, loadSettings, saveLibraryCache } from '../services/storage';
 import {
   getLocalMusicPermissionStatus,
   requestLocalMusicPermission,
@@ -18,7 +19,7 @@ export type UseLocalMusicLibraryResult = {
   error?: string;
   lastScannedAt?: Date;
   requestPermissionAndScan: () => Promise<void>;
-  refresh: () => Promise<void>;
+  refresh: (options?: { minDurationMs?: number }) => Promise<void>;
 };
 
 export function useLocalMusicLibrary(): UseLocalMusicLibraryResult {
@@ -29,14 +30,21 @@ export function useLocalMusicLibrary(): UseLocalMusicLibraryResult {
   const [error, setError] = useState<string>();
   const [lastScannedAt, setLastScannedAt] = useState<Date>();
 
-  const scan = useCallback(async () => {
+  const scan = useCallback(async (options?: { minDurationMs?: number }) => {
     setIsScanning(true);
     setError(undefined);
 
     try {
-      const scannedTracks = await scanLocalMusic();
+      const scanOptions = options || { minDurationMs: (await loadSettings()).minAudioDurationMs };
+      const scannedTracks = await scanLocalMusic(scanOptions);
+      const scannedAt = new Date();
       setTracks(scannedTracks);
-      setLastScannedAt(new Date());
+      setLastScannedAt(scannedAt);
+      await saveLibraryCache({
+        scannedAt: scannedAt.getTime(),
+        minDurationMs: scanOptions.minDurationMs || 0,
+        tracks: scannedTracks,
+      });
     } catch (scanError) {
       setError(
         scanError instanceof Error ? scanError.message : '扫描本地音乐失败',
@@ -50,6 +58,12 @@ export function useLocalMusicLibrary(): UseLocalMusicLibraryResult {
     let isMounted = true;
 
     async function checkPermission() {
+      const cached = await loadLibraryCache();
+      if (isMounted && cached) {
+        setTracks(cached.tracks);
+        setLastScannedAt(cached.scannedAt ? new Date(cached.scannedAt) : undefined);
+      }
+
       try {
         const status = await getLocalMusicPermissionStatus();
         if (!isMounted) {

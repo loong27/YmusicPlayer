@@ -7,7 +7,14 @@ export type Track = {
   artist: string;
   album?: string;
   durationSeconds?: number;
+  trackNumber?: number;
+  year?: number;
+  mimeType?: string;
+  size?: number;
+  dateModified?: number;
+  relativePath?: string;
   artworkUri?: string;
+  streamUri?: string;
   localUri?: string;
   lyricUri?: string;
   liked?: boolean;

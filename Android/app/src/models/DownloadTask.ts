@@ -14,6 +14,7 @@ export type DownloadTask = {
   totalBytes?: number;
   downloadedBytes?: number;
   targetUri?: string;
+  sourceUrl?: string;
   error?: string;
   createdAt: string;
   updatedAt: string;
