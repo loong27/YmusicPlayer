@@ -40,7 +40,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [snapshot, setSnapshot] = useState<PlayerSnapshot>(emptyPlayerSnapshot);
   const snapshotRef = useRef(snapshot);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const mountedRef = useRef(true);
+  const resyncRequestRef = useRef(0);
   const lastPositionSaveAtRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      resyncRequestRef.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     snapshotRef.current = snapshot;
@@ -60,29 +69,43 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }).catch(() => undefined);
   }, []);
 
-  const applyNativeState = useCallback((state: NativePlayerState) => {
-    setSnapshot(previous => {
-      const currentIndex = state.currentIndex >= 0 ? state.currentIndex : previous.currentIndex;
-      const currentTrack = previous.queue[currentIndex];
-      const shouldClearError = state.playbackState === 'playing' || state.playbackState === 'buffering' || (state.playbackState === 'paused' && previous.playbackState !== 'error');
-      const error = state.error || (shouldClearError ? undefined : previous.error);
-      return { ...previous, ...state, currentIndex, currentTrack, error };
-    });
+  const safeSetSnapshot = useCallback((updater: React.SetStateAction<PlayerSnapshot>) => {
+    if (mountedRef.current) {
+      setSnapshot(updater);
+    }
   }, []);
 
+  const applyNativeState = useCallback((state: NativePlayerState) => {
+    const normalized = normalizeNativeState(state, snapshotRef.current.queue);
+    safeSetSnapshot(previous => {
+      const currentIndex = normalized.currentIndex >= 0 ? normalized.currentIndex : previous.currentIndex;
+      const currentTrack = previous.queue[currentIndex];
+      const shouldClearError = normalized.playbackState === 'playing' || normalized.playbackState === 'buffering' || (normalized.playbackState === 'paused' && previous.playbackState !== 'error');
+      const error = normalized.error || (shouldClearError ? undefined : previous.error);
+      return { ...previous, ...normalized, currentIndex, currentTrack, error };
+    });
+  }, [safeSetSnapshot]);
+
   const resyncNativeState = useCallback(async () => {
+    const requestId = resyncRequestRef.current + 1;
+    resyncRequestRef.current = requestId;
     try {
-      applyNativeState(await playerNative.getState());
+      const state = await playerNative.getState();
+      if (mountedRef.current && requestId === resyncRequestRef.current) {
+        applyNativeState(state);
+      }
     } catch (error) {
-      setSnapshot(previous => ({
-        ...previous,
-        lastDiagnostic: {
-          type: 'getStateFailed',
-          message: error instanceof Error ? error.message : '同步原生播放状态失败',
-        },
-      }));
+      if (mountedRef.current && requestId === resyncRequestRef.current) {
+        safeSetSnapshot(previous => ({
+          ...previous,
+          lastDiagnostic: {
+            type: 'getStateFailed',
+            message: error instanceof Error ? error.message : '同步原生播放状态失败',
+          },
+        }));
+      }
     }
-  }, [applyNativeState]);
+  }, [applyNativeState, safeSetSnapshot]);
 
   useEffect(() => {
     if (isSettingsLoading) {
@@ -111,13 +134,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             persisted.shuffleEnabled,
             false,
           );
+          const normalizedNativeState = normalizeNativeState(restoredNativeState, restorableQueue);
           if (isMounted) {
-            setSnapshot(previous => ({
+            safeSetSnapshot(previous => ({
               ...previous,
-              ...restoredNativeState,
+              ...normalizedNativeState,
               queue: restorableQueue,
-              currentIndex: restoredNativeState.currentIndex,
-              currentTrack: restorableQueue[restoredNativeState.currentIndex],
+              currentIndex: normalizedNativeState.currentIndex,
+              currentTrack: normalizedNativeState.currentIndex >= 0 ? restorableQueue[normalizedNativeState.currentIndex] : undefined,
               playbackState: 'paused',
             }));
           }
@@ -126,41 +150,49 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
       const nativeState = await playerNative.getState();
       if (isMounted) {
-        setSnapshot(previous => {
+        safeSetSnapshot(previous => {
           const queue = previous.queue.length > 0 ? previous.queue : (persistedQueue || []);
-          const currentIndex = nativeState.currentIndex >= 0 ? nativeState.currentIndex : previous.currentIndex;
+          const normalizedNativeState = normalizeNativeState(nativeState, queue);
+          const currentIndex = normalizedNativeState.currentIndex >= 0 ? normalizedNativeState.currentIndex : previous.currentIndex;
           return {
             ...previous,
-            ...nativeState,
+            ...normalizedNativeState,
             queue,
             currentIndex,
-            currentTrack: queue[currentIndex],
-            playbackState: nativeState.playbackState === 'playing' ? 'playing' : previous.playbackState === 'paused' ? 'paused' : nativeState.playbackState,
+            currentTrack: currentIndex >= 0 ? queue[currentIndex] : undefined,
+            playbackState: normalizedNativeState.playbackState === 'playing' ? 'playing' : previous.playbackState === 'paused' ? 'paused' : normalizedNativeState.playbackState,
           };
         });
       }
     }
 
     restore().catch(error => {
-      setSnapshot(previous => ({ ...previous, error: error instanceof Error ? error.message : '恢复播放状态失败' }));
+      if (isMounted) {
+        safeSetSnapshot(previous => ({ ...previous, error: error instanceof Error ? error.message : '恢复播放状态失败' }));
+      }
     });
 
     const subscriptions = [
       addPlayerEventListener<NativePlayerState>('PlayerStateChanged', applyNativeState),
       addPlayerEventListener<{ positionMs: number; durationMs: number }>('PlayerPositionChanged', event => {
-        setSnapshot(previous => ({ ...previous, ...event }));
+        safeSetSnapshot(previous => ({ ...previous, ...normalizePositionEvent(event) }));
       }),
       addPlayerEventListener<{ currentIndex: number; currentTrackId?: string }>('PlayerTrackChanged', event => {
-        setSnapshot(previous => ({
-          ...previous,
-          currentIndex: event.currentIndex,
-          currentTrackId: event.currentTrackId,
-          currentTrack: previous.queue[event.currentIndex],
-        }));
+        safeSetSnapshot(previous => {
+          const currentIndex = event.currentIndex >= 0 && event.currentIndex < previous.queue.length
+            ? event.currentIndex
+            : event.currentTrackId ? previous.queue.findIndex(track => track.id === event.currentTrackId) : -1;
+          return {
+            ...previous,
+            currentIndex,
+            currentTrackId: typeof event.currentTrackId === 'string' ? event.currentTrackId : undefined,
+            currentTrack: currentIndex >= 0 ? previous.queue[currentIndex] : undefined,
+          };
+        });
       }),
       addPlayerEventListener<{ message?: string }>('PlayerError', event => {
         const diagnostic: PlayerDiagnostic = { type: 'playerError', message: event.message || '播放失败' };
-        setSnapshot(previous => ({
+        safeSetSnapshot(previous => ({
           ...previous,
           playbackState: 'error',
           error: event.message || '播放失败',
@@ -169,11 +201,13 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         }));
       }),
       addPlayerEventListener<PlayerDiagnostic>('PlayerDiagnostic', event => {
-        setSnapshot(previous => ({ ...previous, lastDiagnostic: event, diagnosticHistory: [event, ...previous.diagnosticHistory].slice(0, DIAGNOSTIC_HISTORY_LIMIT) }));
+        const diagnostic = normalizeDiagnostic(event);
+        safeSetSnapshot(previous => ({ ...previous, lastDiagnostic: diagnostic, diagnosticHistory: [diagnostic, ...previous.diagnosticHistory].slice(0, DIAGNOSTIC_HISTORY_LIMIT) }));
       }),
       addPlayerEventListener<{ currentIndex: number; queueSize: number }>('PlayerQueueChanged', event => {
-        setSnapshot(previous => {
-          if (event.queueSize === 0) {
+        safeSetSnapshot(previous => {
+          const queueSize = Number.isFinite(event.queueSize) ? Math.max(0, Math.trunc(event.queueSize)) : previous.queue.length;
+          if (queueSize === 0) {
             return { ...previous, ...emptyPlayerSnapshot, currentTrack: undefined, error: undefined };
           }
           const currentIndex = event.currentIndex >= 0 && event.currentIndex < previous.queue.length ? event.currentIndex : previous.currentIndex;
@@ -181,14 +215,15 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             ...previous,
             currentIndex,
             currentTrack: previous.queue[currentIndex],
-            lastDiagnostic: event.queueSize !== previous.queue.length
-              ? { type: 'queueSizeMismatch', currentIndex: event.currentIndex, message: `Native queue size ${event.queueSize} differs from JS queue size ${previous.queue.length}` }
+            lastDiagnostic: queueSize !== previous.queue.length
+              ? { type: 'queueSizeMismatch', currentIndex: event.currentIndex, message: `Native queue size ${queueSize} differs from JS queue size ${previous.queue.length}` }
               : previous.lastDiagnostic,
           };
         });
-        if (event.queueSize === 0) {
+        const queueSize = Number.isFinite(event.queueSize) ? Math.max(0, Math.trunc(event.queueSize)) : snapshotRef.current.queue.length;
+        if (queueSize === 0) {
           clearPlayerState().catch(() => undefined);
-        } else if (event.queueSize !== snapshotRef.current.queue.length) {
+        } else if (queueSize !== snapshotRef.current.queue.length) {
           resyncNativeState();
         }
       }),
@@ -210,7 +245,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       appStateSubscription.remove();
       persistSnapshot();
     };
-  }, [applyNativeState, isSettingsLoading, persistSnapshot, resyncNativeState, settings.restoreQueueOnLaunch]);
+  }, [applyNativeState, isSettingsLoading, persistSnapshot, resyncNativeState, safeSetSnapshot, settings.restoreQueueOnLaunch]);
 
   useEffect(() => {
     if (snapshot.queue.length === 0) {
@@ -231,8 +266,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       audioFocusResumeAfterGain: settings.audioFocusResumeAfterGain,
       bluetoothAutoResumeOnReconnect: settings.bluetoothAutoResumeOnReconnect,
       bluetoothAutoResumeWindowMs: settings.bluetoothAutoResumeWindowMs,
-    }).then(applyNativeState).catch(error => {
-      setSnapshot(previous => ({
+    }).then(state => {
+      if (mountedRef.current) {
+        applyNativeState(state);
+      }
+    }).catch(error => {
+      safeSetSnapshot(previous => ({
         ...previous,
         lastDiagnostic: {
           type: 'configurePlaybackComfortFailed',
@@ -240,7 +279,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         },
       }));
     });
-  }, [applyNativeState, settings.audioFocusDuckOnTransient, settings.audioFocusPauseOnLoss, settings.audioFocusResumeAfterGain, settings.bluetoothAutoResumeOnReconnect, settings.bluetoothAutoResumeWindowMs]);
+  }, [applyNativeState, safeSetSnapshot, settings.audioFocusDuckOnTransient, settings.audioFocusPauseOnLoss, settings.audioFocusResumeAfterGain, settings.bluetoothAutoResumeOnReconnect, settings.bluetoothAutoResumeWindowMs]);
 
   const runCommand = useCallback(async (command: () => Promise<NativePlayerState>) => {
     const previousPlaybackState = snapshotRef.current.playbackState;
@@ -421,6 +460,61 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }), [enqueueTrack, persistSnapshot, playNextTrack, playQueue, playQueueItem, replaceQueue, runCommand, snapshot, syncQueue]);
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;
+}
+
+function normalizeNativeState(state: NativePlayerState, queue: Track[]): NativePlayerState {
+  const playbackStates = new Set(['idle', 'loading', 'playing', 'paused', 'buffering', 'ended', 'error']);
+  const repeatModes = new Set<RepeatMode>(['off', 'one', 'all']);
+  const currentIndex = Number.isFinite(state.currentIndex) ? Math.trunc(state.currentIndex) : -1;
+  return {
+    playbackState: playbackStates.has(state.playbackState) ? state.playbackState : 'idle',
+    positionMs: Number.isFinite(state.positionMs) ? Math.max(0, state.positionMs) : 0,
+    durationMs: Number.isFinite(state.durationMs) ? Math.max(0, state.durationMs) : 0,
+    currentIndex: currentIndex >= 0 && currentIndex < queue.length ? currentIndex : -1,
+    currentTrackId: typeof state.currentTrackId === 'string' ? state.currentTrackId : undefined,
+    repeatMode: repeatModes.has(state.repeatMode) ? state.repeatMode : 'off',
+    shuffleEnabled: Boolean(state.shuffleEnabled),
+    error: typeof state.error === 'string' ? state.error.slice(0, 500) : undefined,
+  };
+}
+
+function normalizePositionEvent(event: { positionMs: number; durationMs: number }) {
+  return {
+    positionMs: Number.isFinite(event.positionMs) ? Math.max(0, event.positionMs) : 0,
+    durationMs: Number.isFinite(event.durationMs) ? Math.max(0, event.durationMs) : 0,
+  };
+}
+
+function normalizeDiagnostic(event: unknown): PlayerDiagnostic {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) {
+    return { type: 'invalidDiagnostic' };
+  }
+  const record = event as Record<string, unknown>;
+  return {
+    type: typeof record.type === 'string' ? record.type : 'diagnostic',
+    message: typeof record.message === 'string' ? record.message.slice(0, 500) : undefined,
+    playbackState: typeof record.playbackState === 'string' ? record.playbackState : undefined,
+    nativePlaybackState: typeof record.nativePlaybackState === 'string' ? record.nativePlaybackState : undefined,
+    isPlaying: typeof record.isPlaying === 'boolean' ? record.isPlaying : undefined,
+    currentIndex: typeof record.currentIndex === 'number' && Number.isFinite(record.currentIndex) ? record.currentIndex : undefined,
+    positionMs: typeof record.positionMs === 'number' && Number.isFinite(record.positionMs) ? Math.max(0, record.positionMs) : undefined,
+    durationMs: typeof record.durationMs === 'number' && Number.isFinite(record.durationMs) ? Math.max(0, record.durationMs) : undefined,
+    errorCode: typeof record.errorCode === 'number' && Number.isFinite(record.errorCode) ? record.errorCode : undefined,
+    errorCodeName: typeof record.errorCodeName === 'string' ? record.errorCodeName : undefined,
+    cause: typeof record.cause === 'string' ? record.cause : undefined,
+    reason: typeof record.reason === 'string' ? record.reason : undefined,
+    foreground: typeof record.foreground === 'boolean' ? record.foreground : undefined,
+    exception: typeof record.exception === 'string' ? record.exception : undefined,
+    hasBluetoothA2dp: typeof record.hasBluetoothA2dp === 'boolean' ? record.hasBluetoothA2dp : undefined,
+    hasBluetoothSco: typeof record.hasBluetoothSco === 'boolean' ? record.hasBluetoothSco : undefined,
+    hasWiredHeadset: typeof record.hasWiredHeadset === 'boolean' ? record.hasWiredHeadset : undefined,
+    hasBuiltInSpeaker: typeof record.hasBuiltInSpeaker === 'boolean' ? record.hasBuiltInSpeaker : undefined,
+    audioFocusChange: typeof record.audioFocusChange === 'string' ? record.audioFocusChange : undefined,
+    audioRouteEvent: typeof record.audioRouteEvent === 'string' ? record.audioRouteEvent : undefined,
+    routeType: typeof record.routeType === 'string' ? record.routeType : undefined,
+    mediaSessionController: typeof record.mediaSessionController === 'string' ? record.mediaSessionController : undefined,
+    command: typeof record.command === 'string' ? record.command : undefined,
+  };
 }
 
 export function usePlayer(): PlayerContextValue {

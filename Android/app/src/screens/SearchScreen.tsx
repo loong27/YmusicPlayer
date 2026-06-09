@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { DownloadTask } from '../models/DownloadTask';
 import { Artwork } from '../components/Artwork';
@@ -24,6 +24,7 @@ export function SearchScreen({ colors, onBack }: { colors: AppColorScheme; onBac
   const [remoteError, setRemoteError] = useState<string>();
   const [isRemoteLoading, setIsRemoteLoading] = useState(false);
   const remoteSearchRequestRef = useRef(0);
+  const mountedRef = useRef(true);
   const queryRef = useRef('');
   const library = useLocalMusicLibrary({ autoScanOnMount: false });
   const player = usePlayer();
@@ -43,7 +44,14 @@ export function SearchScreen({ colors, onBack }: { colors: AppColorScheme; onBac
   const canCloudSearch = trimmedQuery.length > 0 && !isRemoteLoading;
   const cloudConfigMessage = getCloudConfigMessage(settings);
 
-  const isLatestRemoteSearch = (requestId: number, searchQuery: string) => remoteSearchRequestRef.current === requestId && queryRef.current.trim() === searchQuery;
+  const isLatestRemoteSearch = (requestId: number, searchQuery: string) => mountedRef.current && remoteSearchRequestRef.current === requestId && queryRef.current.trim() === searchQuery;
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      remoteSearchRequestRef.current += 1;
+    };
+  }, []);
 
   const runRemoteSearch = async () => {
     if (!canCloudSearch) {

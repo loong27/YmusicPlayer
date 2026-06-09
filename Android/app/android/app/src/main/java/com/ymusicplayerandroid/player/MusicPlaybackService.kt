@@ -1,8 +1,10 @@
 package com.ymusicplayerandroid.player
 
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
@@ -69,11 +71,15 @@ class MusicPlaybackService : MediaSessionService() {
 
   override fun onDestroy() {
     mainHandler.removeCallbacks(releaseWhenIdle)
+    val shouldReleasePlayer = mediaSession?.player?.let { !it.isPlaying && it.mediaItemCount == 0 } ?: true
     mediaSession?.run {
       player.removeListener(listener)
       release()
     }
     mediaSession = null
+    if (shouldReleasePlayer) {
+      PlaybackHolder.clear()
+    }
     super.onDestroy()
   }
 
@@ -116,9 +122,11 @@ object PlaybackHolder {
 
   private val mainHandler = Handler(Looper.getMainLooper())
   private var player: ExoPlayer? = null
+  private var appContext: Context? = null
   private var audioManager: AudioManager? = null
   private var audioFocusRequest: AudioFocusRequest? = null
   private var deviceCallbackRegistered = false
+  private var noisyReceiverRegistered = false
   private var hasPrivateRoute = false
   private var config = PlaybackComfortConfig()
   private var diagnosticSink: ((String, Map<String, Any?>) -> Unit)? = null
@@ -179,27 +187,37 @@ object PlaybackHolder {
     }
   }
 
+  private val noisyReceiver = object : BroadcastReceiver() {
+    override fun onReceive(context: Context?, intent: Intent?) {
+      if (intent?.action == AudioManager.ACTION_AUDIO_BECOMING_NOISY) {
+        mainHandler.post { handleRouteLoss("becomingNoisy") }
+      }
+    }
+  }
+
   private val audioDeviceCallback = object : AudioDeviceCallback() {
     override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
       mainHandler.postDelayed({ evaluateRouteChange("added") }, 300L)
     }
 
     override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
-      mainHandler.postDelayed({ evaluateRouteChange("removed") }, 300L)
+      mainHandler.post { evaluateRouteChange("removed") }
     }
   }
 
   fun getOrCreatePlayer(context: Context): ExoPlayer {
-    val appContext = context.applicationContext
-    audioManager = audioManager ?: appContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    val appCtx = context.applicationContext
+    appContext = appContext ?: appCtx
+    audioManager = audioManager ?: appCtx.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
     registerDeviceCallback()
-    return player ?: ExoPlayer.Builder(appContext).build().also {
+    registerNoisyReceiver()
+    return player ?: ExoPlayer.Builder(appCtx).build().also {
       val audioAttributes = AudioAttributes.Builder()
         .setUsage(C.USAGE_MEDIA)
         .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
         .build()
       it.setAudioAttributes(audioAttributes, false)
-      it.setHandleAudioBecomingNoisy(false)
+      it.setHandleAudioBecomingNoisy(true)
       it.setWakeMode(C.WAKE_MODE_LOCAL)
       it.repeatMode = Player.REPEAT_MODE_OFF
       player = it
@@ -246,14 +264,29 @@ object PlaybackHolder {
   }
 
   fun emitDiagnostic(type: String, extras: MutableMap<String, Any?>.() -> Unit = {}) {
-    val data = mutableMapOf<String, Any?>("type" to type)
-    extras(data)
-    diagnosticSink?.invoke(type, data)
+    try {
+      val data = mutableMapOf<String, Any?>("type" to type)
+      try {
+        extras(data)
+      } catch (error: Exception) {
+        data["extrasError"] = error.javaClass.simpleName
+      }
+      diagnosticSink?.invoke(type, data)
+    } catch (ignored: Exception) = Unit
   }
 
   fun clear() {
     abandonAudioFocus()
+    mainHandler.removeCallbacksAndMessages(null)
+    unregisterDeviceCallback()
+    unregisterNoisyReceiver()
+    player?.release()
     player = null
+    pausedByAudioFocusLoss = false
+    pausedByRouteLoss = false
+    pausedRouteMediaId = null
+    pausedRouteAtMs = 0L
+    userPaused = true
   }
 
   private fun requestAudioFocus(): Boolean {
@@ -292,37 +325,89 @@ object PlaybackHolder {
   private fun registerDeviceCallback() {
     val manager = audioManager ?: return
     if (!deviceCallbackRegistered) {
-      manager.registerAudioDeviceCallback(audioDeviceCallback, mainHandler)
-      deviceCallbackRegistered = true
+      try {
+        manager.registerAudioDeviceCallback(audioDeviceCallback, mainHandler)
+        deviceCallbackRegistered = true
+      } catch (error: Exception) {
+        emitDiagnostic("audioDeviceCallbackRegisterFailed") {
+          put("exception", error.javaClass.simpleName)
+        }
+      }
+    }
+  }
+
+  private fun unregisterDeviceCallback() {
+    val manager = audioManager ?: return
+    if (deviceCallbackRegistered) {
+      try {
+        manager.unregisterAudioDeviceCallback(audioDeviceCallback)
+      } catch (ignored: Exception) = Unit
+      deviceCallbackRegistered = false
+    }
+  }
+
+  private fun registerNoisyReceiver() {
+    val context = appContext ?: return
+    if (!noisyReceiverRegistered) {
+      try {
+        context.registerReceiver(noisyReceiver, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))
+        noisyReceiverRegistered = true
+      } catch (error: Exception) {
+        emitDiagnostic("noisyReceiverRegisterFailed") {
+          put("exception", error.javaClass.simpleName)
+        }
+      }
+    }
+  }
+
+  private fun unregisterNoisyReceiver() {
+    val context = appContext ?: return
+    if (noisyReceiverRegistered) {
+      try {
+        context.unregisterReceiver(noisyReceiver)
+      } catch (ignored: Exception) = Unit
+      noisyReceiverRegistered = false
     }
   }
 
   private fun evaluateRouteChange(reason: String) {
-    val currentPlayer = player ?: return
-    val hasRoute = hasBluetoothOrWiredRoute()
-    if (hasPrivateRoute && !hasRoute) {
-      val wasPlaying = currentPlayer.isPlaying
-      if (wasPlaying) {
-        pausedByRouteLoss = true
-        pausedRouteMediaId = currentPlayer.currentMediaItem?.mediaId
-        pausedRouteAtMs = System.currentTimeMillis()
-        userPaused = false
-        currentPlayer.pause()
+    try {
+      val currentPlayer = player ?: return
+      val hasRoute = hasBluetoothOrWiredRoute()
+      if (hasPrivateRoute && !hasRoute) {
+        handleRouteLoss(reason)
+      } else if (!hasPrivateRoute && hasRoute) {
+        emitDiagnostic("audioRouteChanged") {
+          put("audioRouteEvent", "privateRouteConnected")
+          put("routeType", routeTypeName())
+          put("reason", reason)
+        }
+        maybeResumeAfterRouteReconnect(currentPlayer)
       }
-      emitDiagnostic("audioRouteChanged") {
-        put("audioRouteEvent", "privateRouteLost")
-        put("routeType", "speaker")
+      hasPrivateRoute = hasRoute
+    } catch (error: Exception) {
+      emitDiagnostic("audioRouteChangeFailed") {
         put("reason", reason)
+        put("exception", error.javaClass.simpleName)
       }
-    } else if (!hasPrivateRoute && hasRoute) {
-      emitDiagnostic("audioRouteChanged") {
-        put("audioRouteEvent", "privateRouteConnected")
-        put("routeType", routeTypeName())
-        put("reason", reason)
-      }
-      maybeResumeAfterRouteReconnect(currentPlayer)
     }
-    hasPrivateRoute = hasRoute
+  }
+
+  private fun handleRouteLoss(reason: String) {
+    val currentPlayer = player ?: return
+    if (currentPlayer.isPlaying) {
+      pausedByRouteLoss = true
+      pausedRouteMediaId = currentPlayer.currentMediaItem?.mediaId
+      pausedRouteAtMs = System.currentTimeMillis()
+      userPaused = false
+      currentPlayer.pause()
+    }
+    hasPrivateRoute = false
+    emitDiagnostic("audioRouteChanged") {
+      put("audioRouteEvent", "privateRouteLost")
+      put("routeType", "speaker")
+      put("reason", reason)
+    }
   }
 
   private fun maybeResumeAfterRouteReconnect(currentPlayer: ExoPlayer) {

@@ -35,19 +35,26 @@ class MusicDownloadService : Service() {
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    val taskId = intent?.getStringExtra(EXTRA_TASK_ID)
-    when (intent?.action) {
-      ACTION_ENQUEUE, ACTION_RESUME -> {
-        if (taskId != null && !activeTasks.containsKey(taskId)) {
-          val sourceUrl = intent.getStringExtra(EXTRA_SOURCE_URL)
-          val title = intent.getStringExtra(EXTRA_TITLE) ?: taskId
-          enqueue(taskId, sourceUrl, title)
+    try {
+      val taskId = intent?.getStringExtra(EXTRA_TASK_ID)
+      when (intent?.action) {
+        ACTION_ENQUEUE, ACTION_RESUME -> {
+          if (taskId != null && !activeTasks.containsKey(taskId)) {
+            val sourceUrl = intent.getStringExtra(EXTRA_SOURCE_URL)
+            val title = intent.getStringExtra(EXTRA_TITLE) ?: taskId
+            enqueue(taskId, sourceUrl, title)
+          }
         }
+        ACTION_PAUSE -> taskId?.let { pause(it) }
+        ACTION_CANCEL -> taskId?.let { cancel(it) }
       }
-      ACTION_PAUSE -> taskId?.let { pause(it) }
-      ACTION_CANCEL -> taskId?.let { cancel(it) }
+      updateForeground()
+    } catch (error: Exception) {
+      intent?.getStringExtra(EXTRA_TASK_ID)?.let { taskId ->
+        DownloadEvents.status(taskId, "failed", 0.0, error = "下载服务处理失败：${error.message ?: error.javaClass.simpleName}")
+      }
+      updateForeground()
     }
-    updateForeground()
     return START_STICKY
   }
 
@@ -195,14 +202,20 @@ class MusicDownloadService : Service() {
       val resolver = contentResolver
       val uri = resolver.insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values)
         ?: throw IllegalStateException("无法创建 MediaStore 音乐文件")
-      resolver.openOutputStream(uri)?.use { output ->
-        FileInputStream(tempFile).use { input -> input.copyTo(output) }
-      } ?: throw IllegalStateException("无法写入 MediaStore 音乐文件")
-      values.clear()
-      values.put(MediaStore.Audio.Media.IS_PENDING, 0)
-      resolver.update(uri, values, null, null)
-      tempFile.delete()
-      return uri
+      try {
+        resolver.openOutputStream(uri)?.use { output ->
+          FileInputStream(tempFile).use { input -> input.copyTo(output) }
+        } ?: throw IllegalStateException("无法写入 MediaStore 音乐文件")
+        values.clear()
+        values.put(MediaStore.Audio.Media.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        tempFile.delete()
+        return uri
+      } catch (error: Exception) {
+        resolver.delete(uri, null, null)
+        tempFile.delete()
+        throw error
+      }
     }
 
     val musicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC)

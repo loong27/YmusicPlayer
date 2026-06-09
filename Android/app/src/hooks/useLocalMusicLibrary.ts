@@ -83,13 +83,13 @@ export function useLocalMusicLibrary({ autoScanOnMount = true }: { autoScanOnMou
     let isMounted = true;
 
     async function checkPermission() {
-      const cached = await loadLibraryCache();
-      if (isMounted && cached) {
-        setTracks(cached.tracks);
-        setLastScannedAt(cached.scannedAt ? new Date(cached.scannedAt) : undefined);
-      }
-
       try {
+        const cached = await loadLibraryCache();
+        if (isMounted && cached) {
+          setTracks(cached.tracks);
+          setLastScannedAt(cached.scannedAt ? new Date(cached.scannedAt) : undefined);
+        }
+
         const status = await getLocalMusicPermissionStatus();
         if (!isMounted) {
           return;
@@ -123,14 +123,21 @@ export function useLocalMusicLibrary({ autoScanOnMount = true }: { autoScanOnMou
       return;
     }
     setError(undefined);
-    const status = await requestLocalMusicPermission();
-    if (!isMountedRef.current) {
-      return;
-    }
-    setPermissionStatus(status);
+    try {
+      const status = await requestLocalMusicPermission();
+      if (!isMountedRef.current) {
+        return;
+      }
+      setPermissionStatus(status);
 
-    if (status === 'granted') {
-      await scan();
+      if (status === 'granted') {
+        await scan();
+      }
+    } catch (permissionError) {
+      if (isMountedRef.current) {
+        setPermissionStatus('denied');
+        setError(permissionError instanceof Error ? permissionError.message : '请求本地音乐权限失败');
+      }
     }
   }, [scan]);
 

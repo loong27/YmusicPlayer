@@ -13,23 +13,27 @@ object DownloadEvents {
   }
 
   fun emit(eventName: String, params: WritableMap) {
-    val context = reactContext ?: return
-    if (context.hasActiveReactInstance()) {
-      context
-        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-        .emit(eventName, params)
-    }
+    try {
+      val context = reactContext ?: return
+      if (context.hasActiveReactInstance()) {
+        context
+          .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          .emit(eventName, params)
+      }
+    } catch (ignored: Exception) = Unit
   }
 
   fun status(taskId: String, status: String, progress: Double, downloadedBytes: Long = 0L, totalBytes: Long = 0L, targetUri: String? = null, error: String? = null) {
-    val map = Arguments.createMap()
-    map.putString("id", taskId)
-    map.putString("status", status)
-    map.putDouble("progress", progress)
-    map.putDouble("downloadedBytes", downloadedBytes.toDouble())
-    map.putDouble("totalBytes", totalBytes.toDouble())
-    targetUri?.let { map.putString("targetUri", it) }
-    error?.let { map.putString("error", it) }
-    emit("DownloadTaskChanged", map)
+    try {
+      val map = Arguments.createMap()
+      map.putString("id", taskId)
+      map.putString("status", status)
+      map.putDouble("progress", progress)
+      map.putDouble("downloadedBytes", downloadedBytes.toDouble())
+      map.putDouble("totalBytes", totalBytes.toDouble())
+      targetUri?.let { map.putString("targetUri", it) }
+      error?.let { map.putString("error", it.take(500)) }
+      emit("DownloadTaskChanged", map)
+    } catch (ignored: Exception) = Unit
   }
 }

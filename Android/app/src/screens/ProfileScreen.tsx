@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { InfoCard } from '../components/InfoCard';
 import { ScreenHeader } from '../components/ScreenHeader';
@@ -41,12 +41,21 @@ export function ProfileScreen({ colors, onOpenPlaylists }: { colors: AppColorSch
   const collection = useCollection();
   const player = usePlayer();
   const library = useLocalMusicLibrary({ autoScanOnMount: false });
+  const mountedRef = useRef(true);
+  const cloudTestRequestRef = useRef(0);
   const lastScannedText = library.lastScannedAt ? library.lastScannedAt.toLocaleString() : '尚未扫描';
 
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      cloudTestRequestRef.current += 1;
+    };
+  }, []);
+
   const refreshPermissions = () => {
-    getAudioPermissionStatus().then(setAudioStatus).catch(() => setAudioStatus('denied'));
-    getNotificationPermissionStatus().then(setNotificationStatus).catch(() => setNotificationStatus('denied'));
-    getBatteryOptimizationStatus().then(setBatteryStatus).catch(() => setBatteryStatus({ status: 'unknown', isIgnoringBatteryOptimizations: false }));
+    getAudioPermissionStatus().then(value => mountedRef.current && setAudioStatus(value)).catch(() => mountedRef.current && setAudioStatus('denied'));
+    getNotificationPermissionStatus().then(value => mountedRef.current && setNotificationStatus(value)).catch(() => mountedRef.current && setNotificationStatus('denied'));
+    getBatteryOptimizationStatus().then(value => mountedRef.current && setBatteryStatus(value)).catch(() => mountedRef.current && setBatteryStatus({ status: 'unknown', isIgnoringBatteryOptimizations: false }));
   };
 
   useEffect(() => {
@@ -58,6 +67,8 @@ export function ProfileScreen({ colors, onOpenPlaylists }: { colors: AppColorSch
   };
 
   const runCloudTest = async () => {
+    const requestId = cloudTestRequestRef.current + 1;
+    cloudTestRequestRef.current = requestId;
     setInlineError(undefined);
     setTestResult(undefined);
     try {
@@ -65,9 +76,13 @@ export function ProfileScreen({ colors, onOpenPlaylists }: { colors: AppColorSch
       const query = cloudTestQuery.trim() || 'test';
       const tracks = await searchCloudTracks(query, settings, { pageSize: 1 });
       const elapsedMs = Date.now() - startedAt;
-      setTestResult(`连接成功，关键词 ${query} 返回 ${tracks.length} 条结果 · ${elapsedMs}ms · ${settings.cloudActiveProvider}/${settings.cloudDefaultQuality}`);
+      if (mountedRef.current && requestId === cloudTestRequestRef.current) {
+        setTestResult(`连接成功，关键词 ${query} 返回 ${tracks.length} 条结果 · ${elapsedMs}ms · ${settings.cloudActiveProvider}/${settings.cloudDefaultQuality}`);
+      }
     } catch (error) {
-      setInlineError(getErrorMessage(error, '测试连接失败'));
+      if (mountedRef.current && requestId === cloudTestRequestRef.current) {
+        setInlineError(getErrorMessage(error, '测试连接失败'));
+      }
     }
   };
 
@@ -83,7 +98,13 @@ export function ProfileScreen({ colors, onOpenPlaylists }: { colors: AppColorSch
   const importSettings = () => {
     try {
       const payload = JSON.parse(settingsImportText.trim()) as { settings?: Partial<typeof settings> } | Partial<typeof settings>;
-      const imported = 'settings' in payload && payload.settings ? payload.settings : payload;
+      if (!isPlainObject(payload)) {
+        throw new Error('导入内容必须是对象');
+      }
+      const imported = 'settings' in payload ? payload.settings : payload;
+      if (!isPlainObject(imported)) {
+        throw new Error('settings 字段必须是对象');
+      }
       updateSettings(current => ({ ...current, ...imported })).then(() => {
         setSettingsImportText('');
         setInlineError(undefined);
@@ -246,6 +267,10 @@ function keepAliveSummary(notificationStatus: AndroidPermissionStatus, batterySt
 
 function sortLabel(value: string): string {
   return value === 'dateModified' ? '最近修改' : value === 'title' ? '标题' : value === 'artist' ? '艺术家' : '专辑';
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 function cloudSummary(settings: ReturnType<typeof useSettings>['settings']) {

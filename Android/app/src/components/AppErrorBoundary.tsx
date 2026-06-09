@@ -3,13 +3,17 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { darkColors } from '../theme/colors';
 import { getErrorMessage } from '../utils/errors';
 
-type State = { error?: Error };
+type State = { error?: Error; componentStack?: string };
 
 export class AppErrorBoundary extends React.Component<{ children: React.ReactNode }, State> {
   state: State = {};
 
   static getDerivedStateFromError(error: Error): State {
     return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    this.setState({ error, componentStack: info.componentStack ?? undefined });
   }
 
   render() {

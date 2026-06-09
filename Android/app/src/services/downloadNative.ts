@@ -16,9 +16,21 @@ const emitter = nativeDownload ? new NativeEventEmitter(NativeModules.MusicDownl
 
 function ensureDownload() {
   if (Platform.OS !== 'android' || !nativeDownload) {
-    throw new Error('MusicDownload native module is not registered.');
+    return undefined;
   }
   return nativeDownload;
+}
+
+function withDownload<T>(call: (module: NonNullable<typeof nativeDownload>) => Promise<T>): Promise<T> {
+  const module = ensureDownload();
+  if (!module) {
+    return Promise.reject(new Error('MusicDownload native module is not registered.'));
+  }
+  try {
+    return call(module);
+  } catch (error) {
+    return Promise.reject(error);
+  }
 }
 
 export function createDownloadTask(track: Track, quality: DownloadTask['quality'] = 'MP3_320'): DownloadTask {
@@ -40,10 +52,10 @@ export function createDownloadTask(track: Track, quality: DownloadTask['quality'
 }
 
 export const downloadNative = {
-  enqueue: (task: DownloadTask) => ensureDownload().enqueue(task),
-  pause: (taskId: string) => ensureDownload().pause(taskId),
-  resume: (taskId: string) => ensureDownload().resume(taskId),
-  cancel: (taskId: string) => ensureDownload().cancel(taskId),
+  enqueue: (task: DownloadTask) => withDownload(module => module.enqueue(task)),
+  pause: (taskId: string) => withDownload(module => module.pause(taskId)),
+  resume: (taskId: string) => withDownload(module => module.resume(taskId)),
+  cancel: (taskId: string) => withDownload(module => module.cancel(taskId)),
 };
 
 export function addDownloadEventListener<T>(eventName: string, listener: (event: T) => void): EmitterSubscription | undefined {

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Artwork } from '../components/Artwork';
 import { InfoCard } from '../components/InfoCard';
@@ -21,12 +21,21 @@ export function DiscoverScreen({ colors }: { colors: AppColorScheme }) {
   const [aiSummary, setAiSummary] = useState<string>();
   const [aiError, setAiError] = useState<string>();
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const mountedRef = useRef(true);
+  const aiRequestRef = useRef(0);
   const recommendations = useMemo(
     () => buildLocalRecommendations(library.tracks, collection.likedTrackIds, collection.playHistory),
     [collection.likedTrackIds, collection.playHistory, library.tracks],
   );
   const playableTracks = useMemo(() => recommendations.filter(item => item.track).map(item => item.track as Track), [recommendations]);
   const topRecommendation = recommendations[0];
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+      aiRequestRef.current += 1;
+    };
+  }, []);
 
   const playRecommendation = (track: Track) => {
     const playableIndex = playableTracks.findIndex(item => item.id === track.id);
@@ -43,14 +52,23 @@ export function DiscoverScreen({ colors }: { colors: AppColorScheme }) {
     if (isAiLoading) {
       return;
     }
+    const requestId = aiRequestRef.current + 1;
+    aiRequestRef.current = requestId;
     setAiError(undefined);
     setIsAiLoading(true);
     try {
-      setAiSummary(await buildAiRecommendationSummary(library.tracks, collection.likedTrackIds, collection.playHistory, settings));
+      const summary = await buildAiRecommendationSummary(library.tracks, collection.likedTrackIds, collection.playHistory, settings);
+      if (mountedRef.current && requestId === aiRequestRef.current) {
+        setAiSummary(summary);
+      }
     } catch (error) {
-      setAiError(error instanceof Error ? error.message : 'AI 推荐失败');
+      if (mountedRef.current && requestId === aiRequestRef.current) {
+        setAiError(error instanceof Error ? error.message : 'AI 推荐失败');
+      }
     } finally {
-      setIsAiLoading(false);
+      if (mountedRef.current && requestId === aiRequestRef.current) {
+        setIsAiLoading(false);
+      }
     }
   };
 

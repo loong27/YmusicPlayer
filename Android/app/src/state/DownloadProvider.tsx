@@ -25,6 +25,7 @@ const DownloadContext = createContext<DownloadContextValue | undefined>(undefine
 export function DownloadProvider({ children }: { children: React.ReactNode }) {
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
   const tasksRef = useRef<DownloadTask[]>([]);
+  const mountedRef = useRef(true);
   const { settings } = useSettings();
 
   useEffect(() => {
@@ -34,7 +35,7 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
   const updateTasks = useCallback(async (updater: (current: DownloadTask[]) => DownloadTask[]) => {
     const current = tasksRef.current;
     const next = updater(current);
-    if (next === current) {
+    if (next === current || !mountedRef.current) {
       return;
     }
     tasksRef.current = next;
@@ -43,11 +44,27 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    loadDownloadTasks().then(setTasks).catch(() => undefined);
+    loadDownloadTasks().then(storedTasks => {
+      if (!mountedRef.current) {
+        return;
+      }
+      const recoveredTasks = storedTasks.map(task => task.status === 'downloading' ? { ...task, status: 'paused' as const, updatedAt: new Date().toISOString(), error: task.error || '上次下载已中断，请手动恢复' } : task);
+      tasksRef.current = recoveredTasks;
+      setTasks(recoveredTasks);
+      if (recoveredTasks !== storedTasks) {
+        saveDownloadTasks(recoveredTasks).catch(() => undefined);
+      }
+    }).catch(() => undefined);
     const subscription = addDownloadEventListener<NativeDownloadEvent>('DownloadTaskChanged', event => {
-      updateTasks(current => current.map(task => task.id === event.id ? mergeTaskEvent(task, event) : task)).catch(() => undefined);
+      const safeEvent = normalizeDownloadEvent(event);
+      if (safeEvent) {
+        updateTasks(current => current.map(task => task.id === safeEvent.id ? mergeTaskEvent(task, safeEvent) : task)).catch(() => undefined);
+      }
     });
-    return () => subscription?.remove();
+    return () => {
+      mountedRef.current = false;
+      subscription?.remove();
+    };
   }, [updateTasks]);
 
   const updateTask = useCallback((taskId: string, patch: Partial<DownloadTask>) => updateTasks(current => current.map(task => task.id === taskId ? { ...task, ...patch, updatedAt: new Date().toISOString() } : task)), [updateTasks]);
@@ -118,6 +135,28 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
   }), [settings, startNative, tasks, updateTask, updateTasks]);
 
   return <DownloadContext.Provider value={value}>{children}</DownloadContext.Provider>;
+}
+
+const downloadStatuses: DownloadTaskStatus[] = ['queued', 'downloading', 'paused', 'completed', 'failed', 'canceled'];
+
+function normalizeDownloadEvent(event: unknown): NativeDownloadEvent | undefined {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) {
+    return undefined;
+  }
+  const record = event as Record<string, unknown>;
+  if (typeof record.id !== 'string' || !downloadStatuses.includes(record.status as DownloadTaskStatus)) {
+    return undefined;
+  }
+  return {
+    ...record,
+    id: record.id,
+    status: record.status as DownloadTaskStatus,
+    progress: typeof record.progress === 'number' && Number.isFinite(record.progress) ? Math.min(Math.max(record.progress, 0), 1) : undefined,
+    downloadedBytes: typeof record.downloadedBytes === 'number' && Number.isFinite(record.downloadedBytes) ? Math.max(0, record.downloadedBytes) : undefined,
+    totalBytes: typeof record.totalBytes === 'number' && Number.isFinite(record.totalBytes) ? Math.max(0, record.totalBytes) : undefined,
+    targetUri: typeof record.targetUri === 'string' ? record.targetUri : undefined,
+    error: typeof record.error === 'string' ? record.error.slice(0, 500) : undefined,
+  };
 }
 
 function mergeTaskEvent(task: DownloadTask, event: NativeDownloadEvent): DownloadTask {

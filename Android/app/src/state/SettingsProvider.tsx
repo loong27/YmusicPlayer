@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { defaultSettings, loadSettings, saveSettings, type PersistedSettings } from '../services/storage';
+import { defaultSettings, loadSettings, normalizeSettings, saveSettings, type PersistedSettings } from '../services/storage';
 
 type SettingsContextValue = {
   settings: PersistedSettings;
@@ -41,7 +41,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const updateSettings = useCallback(async (next: PersistedSettings | ((current: PersistedSettings) => PersistedSettings)) => {
     let resolved: PersistedSettings = defaultSettings;
     setSettings(current => {
-      resolved = typeof next === 'function' ? next(current) : next;
+      const raw = typeof next === 'function' ? next(current) : next;
+      resolved = normalizeSettings(raw);
       return resolved;
     });
     try {

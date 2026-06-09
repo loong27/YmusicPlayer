@@ -33,26 +33,38 @@ const emitter = nativePlayer ? new NativeEventEmitter(NativeModules.Player) : un
 
 function ensurePlayer() {
   if (Platform.OS !== 'android' || !nativePlayer) {
-    throw new Error('Player native module is not registered. Rebuild the Android app and verify PlayerPackage is added to MainApplication.');
+    return undefined;
   }
   return nativePlayer;
 }
 
+function withPlayer<T>(call: (player: NonNullable<typeof nativePlayer>) => Promise<T>): Promise<T> {
+  const player = ensurePlayer();
+  if (!player) {
+    return Promise.reject(new Error('Player native module is not registered. Rebuild the Android app and verify PlayerPackage is added to MainApplication.'));
+  }
+  try {
+    return call(player);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+}
+
 export const playerNative = {
-  setQueue: (tracks: Track[], startIndex: number) => ensurePlayer().setQueue(tracks, startIndex),
+  setQueue: (tracks: Track[], startIndex: number) => withPlayer(player => player.setQueue(tracks, startIndex)),
   restoreQueue: (tracks: Track[], currentIndex: number, positionMs: number, repeatMode: RepeatMode, shuffleEnabled: boolean, playWhenReady: boolean) =>
-    ensurePlayer().restoreQueue(tracks, currentIndex, positionMs, repeatMode, shuffleEnabled, playWhenReady),
-  playTrack: (track: Track) => ensurePlayer().playTrack(track),
-  play: () => ensurePlayer().play(),
-  pause: () => ensurePlayer().pause(),
-  stop: () => ensurePlayer().stop(),
-  seekTo: (positionMs: number) => ensurePlayer().seekTo(positionMs),
-  skipToNext: () => ensurePlayer().skipToNext(),
-  skipToPrevious: () => ensurePlayer().skipToPrevious(),
-  setRepeatMode: (mode: RepeatMode) => ensurePlayer().setRepeatMode(mode),
-  setShuffleEnabled: (enabled: boolean) => ensurePlayer().setShuffleEnabled(enabled),
-  configurePlaybackComfort: (config: PlaybackComfortConfig) => ensurePlayer().configurePlaybackComfort(config),
-  getState: () => ensurePlayer().getState(),
+    withPlayer(player => player.restoreQueue(tracks, currentIndex, positionMs, repeatMode, shuffleEnabled, playWhenReady)),
+  playTrack: (track: Track) => withPlayer(player => player.playTrack(track)),
+  play: () => withPlayer(player => player.play()),
+  pause: () => withPlayer(player => player.pause()),
+  stop: () => withPlayer(player => player.stop()),
+  seekTo: (positionMs: number) => withPlayer(player => player.seekTo(positionMs)),
+  skipToNext: () => withPlayer(player => player.skipToNext()),
+  skipToPrevious: () => withPlayer(player => player.skipToPrevious()),
+  setRepeatMode: (mode: RepeatMode) => withPlayer(player => player.setRepeatMode(mode)),
+  setShuffleEnabled: (enabled: boolean) => withPlayer(player => player.setShuffleEnabled(enabled)),
+  configurePlaybackComfort: (config: PlaybackComfortConfig) => withPlayer(player => player.configurePlaybackComfort(config)),
+  getState: () => withPlayer(player => player.getState()),
 };
 
 export function addPlayerEventListener<T>(eventName: string, listener: (event: T) => void): EmitterSubscription | undefined {

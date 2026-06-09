@@ -25,19 +25,21 @@ import { darkColors, lightColors } from './src/theme/colors';
 
 function App() {
   return (
-    <SafeAreaProvider>
-      <SettingsProvider>
-        <CollectionProvider>
-          <DownloadProvider>
-            <PlayerProvider>
-              <AppErrorBoundary>
-                <AppContent />
-              </AppErrorBoundary>
-            </PlayerProvider>
-          </DownloadProvider>
-        </CollectionProvider>
-      </SettingsProvider>
-    </SafeAreaProvider>
+    <AppErrorBoundary>
+      <SafeAreaProvider>
+        <SettingsProvider>
+          <CollectionProvider>
+            <DownloadProvider>
+              <PlayerProvider>
+                <AppErrorBoundary>
+                  <AppContent />
+                </AppErrorBoundary>
+              </PlayerProvider>
+            </DownloadProvider>
+          </CollectionProvider>
+        </SettingsProvider>
+      </SafeAreaProvider>
+    </AppErrorBoundary>
   );
 }
 

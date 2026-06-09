@@ -168,8 +168,8 @@ function enumValue<T extends string>(value: unknown, values: readonly T[], fallb
   return typeof value === 'string' && values.includes(value as T) ? value as T : fallback;
 }
 
-function migrateSettings(value?: Partial<PersistedSettings>): PersistedSettings {
-  const source = value || {};
+export function normalizeSettings(value?: Partial<PersistedSettings> | null): PersistedSettings {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
   return {
     librarySort: stringValue(source.librarySort, defaultSettings.librarySort),
     minAudioDurationMs: numberValue(source.minAudioDurationMs, defaultSettings.minAudioDurationMs, 5_000, 10 * 60_000),
@@ -177,19 +177,19 @@ function migrateSettings(value?: Partial<PersistedSettings>): PersistedSettings 
     libraryCustomExcludeKeywords: stringValue(source.libraryCustomExcludeKeywords, defaultSettings.libraryCustomExcludeKeywords).slice(0, 500),
     restoreQueueOnLaunch: booleanValue(source.restoreQueueOnLaunch, defaultSettings.restoreQueueOnLaunch),
     cloudEnabled: booleanValue(source.cloudEnabled, defaultSettings.cloudEnabled),
-    cloudBaseUrl: stringValue(source.cloudBaseUrl, defaultSettings.cloudBaseUrl),
-    cloudApiKey: stringValue(source.cloudApiKey, defaultSettings.cloudApiKey),
-    cloudAuthHeader: stringValue(source.cloudAuthHeader, defaultSettings.cloudAuthHeader),
-    cloudAuthScheme: stringValue(source.cloudAuthScheme, defaultSettings.cloudAuthScheme),
+    cloudBaseUrl: stringValue(source.cloudBaseUrl, defaultSettings.cloudBaseUrl).slice(0, 500),
+    cloudApiKey: stringValue(source.cloudApiKey, defaultSettings.cloudApiKey).slice(0, 2_000),
+    cloudAuthHeader: stringValue(source.cloudAuthHeader, defaultSettings.cloudAuthHeader).slice(0, 80),
+    cloudAuthScheme: stringValue(source.cloudAuthScheme, defaultSettings.cloudAuthScheme).slice(0, 80),
     cloudActiveProvider: enumValue(source.cloudActiveProvider, cloudProviders, defaultSettings.cloudActiveProvider),
     cloudSearchMode: enumValue(source.cloudSearchMode, searchModes, defaultSettings.cloudSearchMode),
     cloudPageSize: Math.round(numberValue(source.cloudPageSize, defaultSettings.cloudPageSize, 1, 50)),
     cloudDefaultQuality: enumValue(source.cloudDefaultQuality, audioQualities, defaultSettings.cloudDefaultQuality),
     cloudTimeoutMs: Math.round(numberValue(source.cloudTimeoutMs, defaultSettings.cloudTimeoutMs, 3_000, 120_000)),
     aiEnabled: booleanValue(source.aiEnabled, defaultSettings.aiEnabled),
-    aiBaseUrl: stringValue(source.aiBaseUrl, defaultSettings.aiBaseUrl),
-    aiModel: stringValue(source.aiModel, defaultSettings.aiModel),
-    aiApiKey: stringValue(source.aiApiKey, defaultSettings.aiApiKey),
+    aiBaseUrl: stringValue(source.aiBaseUrl, defaultSettings.aiBaseUrl).slice(0, 500),
+    aiModel: stringValue(source.aiModel, defaultSettings.aiModel).slice(0, 200),
+    aiApiKey: stringValue(source.aiApiKey, defaultSettings.aiApiKey).slice(0, 2_000),
     aiTemperature: numberValue(source.aiTemperature, defaultSettings.aiTemperature, 0, 2),
     aiMaxTokens: Math.round(numberValue(source.aiMaxTokens, defaultSettings.aiMaxTokens, 64, 8_000)),
     aiTimeoutMs: Math.round(numberValue(source.aiTimeoutMs, defaultSettings.aiTimeoutMs, 3_000, 120_000)),
@@ -229,9 +229,13 @@ export async function ensureStorageMigrated(): Promise<void> {
     return;
   }
 
-  const settings = migrateSettings(await readJson<Partial<PersistedSettings>>(keys.settings));
-  await writeJson(keys.settings, settings);
-  await writeJson(keys.meta, { schemaVersion });
+  const settings = normalizeSettings(await readJson<Partial<PersistedSettings>>(keys.settings));
+  try {
+    await writeJson(keys.settings, settings);
+    await writeJson(keys.meta, { schemaVersion });
+  } catch {
+    // Migration writes are best-effort so corrupt storage does not block app startup.
+  }
 }
 
 export async function loadPlayerState(): Promise<PersistedPlayerState | undefined> {
@@ -251,12 +255,12 @@ export async function clearPlayerState(): Promise<void> {
 
 export async function loadSettings(): Promise<PersistedSettings> {
   await ensureStorageMigrated();
-  return migrateSettings(await readJson<Partial<PersistedSettings>>(keys.settings));
+  return normalizeSettings(await readJson<Partial<PersistedSettings>>(keys.settings));
 }
 
 export async function saveSettings(settings: PersistedSettings): Promise<void> {
   await ensureStorageMigrated();
-  await writeJson(keys.settings, migrateSettings(settings));
+  await writeJson(keys.settings, normalizeSettings(settings));
 }
 
 export async function loadLibraryCache(): Promise<LibraryCache | undefined> {

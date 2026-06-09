@@ -129,11 +129,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
         lastError = null
         player.setMediaItems(mediaItems, startIndex.coerceIn(0, mediaItems.size - 1), 0L)
         player.prepare()
-        startPlaybackService(foreground = true)
-        if (!PlaybackHolder.prepareForPlay()) {
-          throw IllegalStateException("音频通道暂时被其他应用占用")
-        }
-        player.play()
+        beginPlayback()
         emitQueueChanged()
         emitTrackChanged()
         emitState()
@@ -160,14 +156,10 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
         player.shuffleModeEnabled = shuffleEnabled
         player.prepare()
         if (playWhenReady) {
-          startPlaybackService(foreground = true)
-          if (!PlaybackHolder.prepareForPlay()) {
-            throw IllegalStateException("音频通道暂时被其他应用占用")
-          }
-          player.play()
+          beginPlayback()
         } else {
           player.pause()
-          startPlaybackService(foreground = false)
+          startPlaybackService(foreground = false, throwOnFailure = false)
         }
         emitQueueChanged()
         emitTrackChanged()
@@ -187,11 +179,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
         lastError = null
         player.setMediaItem(trackToMediaItem(track))
         player.prepare()
-        startPlaybackService(foreground = true)
-        if (!PlaybackHolder.prepareForPlay()) {
-          throw IllegalStateException("音频通道暂时被其他应用占用")
-        }
-        player.play()
+        beginPlayback()
         emitQueueChanged()
         emitTrackChanged()
         emitState()
@@ -207,11 +195,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
     if (mediaItemCount == 0) {
       throw IllegalStateException("Queue is empty")
     }
-    startPlaybackService(foreground = true)
-    if (!PlaybackHolder.prepareForPlay()) {
-      throw IllegalStateException("音频通道暂时被其他应用占用")
-    }
-    play()
+    beginPlayback()
   }
 
   @ReactMethod
@@ -230,14 +214,18 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
   @ReactMethod
   fun configurePlaybackComfort(config: ReadableMap, promise: Promise) {
     mainHandler.post {
-      PlaybackHolder.configure(PlaybackComfortConfig(
-        audioFocusDuckOnTransient = if (config.hasKey("audioFocusDuckOnTransient")) config.getBoolean("audioFocusDuckOnTransient") else true,
-        audioFocusPauseOnLoss = if (config.hasKey("audioFocusPauseOnLoss")) config.getBoolean("audioFocusPauseOnLoss") else true,
-        audioFocusResumeAfterGain = if (config.hasKey("audioFocusResumeAfterGain")) config.getBoolean("audioFocusResumeAfterGain") else true,
-        bluetoothAutoResumeOnReconnect = if (config.hasKey("bluetoothAutoResumeOnReconnect")) config.getBoolean("bluetoothAutoResumeOnReconnect") else true,
-        bluetoothAutoResumeWindowMs = if (config.hasKey("bluetoothAutoResumeWindowMs")) config.getDouble("bluetoothAutoResumeWindowMs").toLong().coerceIn(60_000L, 10 * 60_000L) else 300_000L,
-      ))
-      promise.resolve(stateMap())
+      try {
+        PlaybackHolder.configure(PlaybackComfortConfig(
+          audioFocusDuckOnTransient = if (config.hasKey("audioFocusDuckOnTransient")) config.getBoolean("audioFocusDuckOnTransient") else true,
+          audioFocusPauseOnLoss = if (config.hasKey("audioFocusPauseOnLoss")) config.getBoolean("audioFocusPauseOnLoss") else true,
+          audioFocusResumeAfterGain = if (config.hasKey("audioFocusResumeAfterGain")) config.getBoolean("audioFocusResumeAfterGain") else true,
+          bluetoothAutoResumeOnReconnect = if (config.hasKey("bluetoothAutoResumeOnReconnect")) config.getBoolean("bluetoothAutoResumeOnReconnect") else true,
+          bluetoothAutoResumeWindowMs = if (config.hasKey("bluetoothAutoResumeWindowMs")) config.getDouble("bluetoothAutoResumeWindowMs").toLong().coerceIn(60_000L, 10 * 60_000L) else 300_000L,
+        ))
+        promise.resolve(stateMap())
+      } catch (error: Exception) {
+        promise.reject("E_CONFIGURE_PLAYBACK_COMFORT_FAILED", "Failed to configure playback comfort.", error)
+      }
     }
   }
 
@@ -288,7 +276,29 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
 
   @ReactMethod
   fun getState(promise: Promise) {
-    mainHandler.post { promise.resolve(stateMap()) }
+    mainHandler.post {
+      try {
+        promise.resolve(stateMap())
+      } catch (error: Exception) {
+        val map = Arguments.createMap()
+        map.putString("playbackState", "idle")
+        map.putDouble("positionMs", 0.0)
+        map.putDouble("durationMs", 0.0)
+        map.putInt("currentIndex", -1)
+        map.putBoolean("shuffleEnabled", false)
+        map.putString("repeatMode", "off")
+        map.putString("error", error.message ?: "读取播放状态失败")
+        promise.resolve(map)
+      }
+    }
+  }
+
+  private fun Player.beginPlayback() {
+    if (!PlaybackHolder.prepareForPlay()) {
+      throw IllegalStateException("音频通道暂时被其他应用占用")
+    }
+    startPlaybackService(foreground = true, throwOnFailure = true)
+    play()
   }
 
   private fun runPlayerCommand(promise: Promise, command: Player.() -> Unit) {
@@ -393,16 +403,28 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
   }
 
   private fun emitDiagnostic(type: String, extras: ((WritableMap) -> Unit)? = null) {
-    val map = Arguments.createMap()
-    map.putString("type", type)
-    map.putString("playbackState", player.playbackState.toPlaybackStateName())
-    map.putBoolean("isPlaying", player.isPlaying)
-    map.putInt("currentIndex", if (player.mediaItemCount > 0) player.currentMediaItemIndex else -1)
-    map.putDouble("positionMs", player.currentPosition.coerceAtLeast(0L).toDouble())
-    map.putDouble("durationMs", player.duration.takeIf { it > 0 }?.toDouble() ?: 0.0)
-    addOutputRouteSnapshot(map)
-    extras?.invoke(map)
-    sendEvent("PlayerDiagnostic", map)
+    try {
+      val map = Arguments.createMap()
+      map.putString("type", type)
+      try {
+        map.putString("playbackState", player.playbackState.toPlaybackStateName())
+        map.putBoolean("isPlaying", player.isPlaying)
+        map.putInt("currentIndex", if (player.mediaItemCount > 0) player.currentMediaItemIndex else -1)
+        map.putDouble("positionMs", player.currentPosition.coerceAtLeast(0L).toDouble())
+        map.putDouble("durationMs", player.duration.takeIf { it > 0 }?.toDouble() ?: 0.0)
+      } catch (ignored: Exception) {
+        map.putString("playbackState", "unknown")
+      }
+      try {
+        addOutputRouteSnapshot(map)
+      } catch (ignored: Exception) = Unit
+      try {
+        extras?.invoke(map)
+      } catch (error: Exception) {
+        map.putString("extrasError", error.javaClass.simpleName)
+      }
+      sendEvent("PlayerDiagnostic", map)
+    } catch (ignored: Exception) = Unit
   }
 
   private fun putDiagnosticValue(map: WritableMap, key: String, value: Any?) {
@@ -451,14 +473,16 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
   }
 
   private fun sendEvent(eventName: String, params: WritableMap) {
-    if (reactContext.hasActiveReactInstance()) {
-      reactContext
-        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
-        .emit(eventName, params)
-    }
+    try {
+      if (reactContext.hasActiveReactInstance()) {
+        reactContext
+          .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+          .emit(eventName, params)
+      }
+    } catch (ignored: Exception) = Unit
   }
 
-  private fun startPlaybackService(foreground: Boolean) {
+  private fun startPlaybackService(foreground: Boolean, throwOnFailure: Boolean = foreground) {
     val intent = Intent(reactContext, MusicPlaybackService::class.java)
     try {
       if (foreground) {
@@ -475,7 +499,9 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
         map.putString("exception", error.javaClass.simpleName)
         map.putString("message", error.message ?: "启动播放服务失败")
       }
-      throw IllegalStateException("启动播放服务失败：${error.message ?: error.javaClass.simpleName}", error)
+      if (throwOnFailure) {
+        throw IllegalStateException("启动播放服务失败：${error.message ?: error.javaClass.simpleName}", error)
+      }
     }
   }
 
