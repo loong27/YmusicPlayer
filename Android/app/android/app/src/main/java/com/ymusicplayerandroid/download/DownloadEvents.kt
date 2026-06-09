@@ -20,7 +20,7 @@ object DownloadEvents {
           .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
           .emit(eventName, params)
       }
-    } catch (ignored: Exception) = Unit
+    } catch (ignored: Exception) { }
   }
 
   fun status(taskId: String, status: String, progress: Double, downloadedBytes: Long = 0L, totalBytes: Long = 0L, targetUri: String? = null, error: String? = null) {
@@ -34,6 +34,6 @@ object DownloadEvents {
       targetUri?.let { map.putString("targetUri", it) }
       error?.let { map.putString("error", it.take(500)) }
       emit("DownloadTaskChanged", map)
-    } catch (ignored: Exception) = Unit
+    } catch (ignored: Exception) { }
   }
 }

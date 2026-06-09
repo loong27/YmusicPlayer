@@ -272,7 +272,7 @@ object PlaybackHolder {
         data["extrasError"] = error.javaClass.simpleName
       }
       diagnosticSink?.invoke(type, data)
-    } catch (ignored: Exception) = Unit
+    } catch (ignored: Exception) { }
   }
 
   fun clear() {
@@ -341,7 +341,7 @@ object PlaybackHolder {
     if (deviceCallbackRegistered) {
       try {
         manager.unregisterAudioDeviceCallback(audioDeviceCallback)
-      } catch (ignored: Exception) = Unit
+      } catch (ignored: Exception) { }
       deviceCallbackRegistered = false
     }
   }
@@ -365,7 +365,7 @@ object PlaybackHolder {
     if (noisyReceiverRegistered) {
       try {
         context.unregisterReceiver(noisyReceiver)
-      } catch (ignored: Exception) = Unit
+      } catch (ignored: Exception) { }
       noisyReceiverRegistered = false
     }
   }
