@@ -27,13 +27,17 @@ class MusicPlaybackService : MediaSessionService() {
 
   private val releaseWhenIdle = Runnable {
     val player = mediaSession?.player ?: return@Runnable
-    if (!player.isPlaying && player.mediaItemCount == 0) {
+    if (player.playbackState == Player.STATE_IDLE && !player.playWhenReady && player.mediaItemCount == 0) {
       stopSelf()
     }
   }
 
   private val listener = object : Player.Listener {
     override fun onIsPlayingChanged(isPlaying: Boolean) {
+      scheduleIdleRelease()
+    }
+
+    override fun onPlaybackStateChanged(playbackState: Int) {
       scheduleIdleRelease()
     }
 
@@ -64,14 +68,16 @@ class MusicPlaybackService : MediaSessionService() {
 
   override fun onTaskRemoved(rootIntent: Intent?) {
     val player = mediaSession?.player
-    if (player == null || (!player.isPlaying && player.mediaItemCount == 0)) {
+    if (player == null || (player.playbackState == Player.STATE_IDLE && !player.playWhenReady && player.mediaItemCount == 0)) {
       stopSelf()
     }
   }
 
   override fun onDestroy() {
     mainHandler.removeCallbacks(releaseWhenIdle)
-    val shouldReleasePlayer = mediaSession?.player?.let { !it.isPlaying && it.mediaItemCount == 0 } ?: true
+    val shouldReleasePlayer = mediaSession?.player?.let {
+      it.playbackState == Player.STATE_IDLE && !it.playWhenReady && it.mediaItemCount == 0
+    } ?: true
     mediaSession?.run {
       player.removeListener(listener)
       release()
@@ -86,7 +92,7 @@ class MusicPlaybackService : MediaSessionService() {
   private fun scheduleIdleRelease() {
     mainHandler.removeCallbacks(releaseWhenIdle)
     val player = mediaSession?.player ?: return
-    if (!player.isPlaying && player.mediaItemCount == 0) {
+    if (player.playbackState == Player.STATE_IDLE && !player.playWhenReady && player.mediaItemCount == 0) {
       mainHandler.postDelayed(releaseWhenIdle, IDLE_RELEASE_DELAY_MS)
     }
   }
@@ -104,7 +110,7 @@ class MusicPlaybackService : MediaSessionService() {
   }
 
   companion object {
-    private const val IDLE_RELEASE_DELAY_MS = 30_000L
+    private const val IDLE_RELEASE_DELAY_MS = 300_000L
   }
 }
 
@@ -135,6 +141,8 @@ object PlaybackHolder {
   private var pausedRouteMediaId: String? = null
   private var pausedRouteAtMs = 0L
   private var userPaused = false
+
+  private val evaluateRouteRunnable = Runnable { evaluateRouteChange("delayedAdded") }
 
   private val audioFocusChangeListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
     val currentPlayer = player ?: return@OnAudioFocusChangeListener
@@ -197,7 +205,8 @@ object PlaybackHolder {
 
   private val audioDeviceCallback = object : AudioDeviceCallback() {
     override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>) {
-      mainHandler.postDelayed({ evaluateRouteChange("added") }, 300L)
+      mainHandler.removeCallbacks(evaluateRouteRunnable)
+      mainHandler.postDelayed(evaluateRouteRunnable, 300L)
     }
 
     override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
@@ -277,7 +286,7 @@ object PlaybackHolder {
 
   fun clear() {
     abandonAudioFocus()
-    mainHandler.removeCallbacksAndMessages(null)
+    mainHandler.removeCallbacks(evaluateRouteRunnable)
     unregisterDeviceCallback()
     unregisterNoisyReceiver()
     player?.release()
