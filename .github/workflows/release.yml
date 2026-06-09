@@ -34,7 +34,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   build:
-    name: Build desktop packages
+    name: Build ${{ matrix.name }} package
     needs: version
     strategy:
       fail-fast: false
