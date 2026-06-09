@@ -35,6 +35,8 @@ export type PlayerDiagnostic = {
   errorCodeName?: string;
   cause?: string;
   reason?: string;
+  foreground?: boolean;
+  exception?: string;
   hasBluetoothA2dp?: boolean;
   hasBluetoothSco?: boolean;
   hasWiredHeadset?: boolean;

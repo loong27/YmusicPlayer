@@ -5,10 +5,15 @@ export type ThemeMode = 'system' | 'light' | 'dark';
 export type CloudSettings = {
   enabled: boolean;
   baseUrl: string;
+  apiKey: string;
+  authHeader: string;
+  authScheme: string;
   activeProvider: CloudProvider;
   enabledProviders: CloudProvider[];
   searchMode: 'single' | 'multi';
   pageSize: number;
+  defaultQuality: AudioQuality;
+  timeoutMs: number;
   scrapeOverwriteMetadata: boolean;
   scrapeDownloadLyric: boolean;
 };
@@ -18,6 +23,7 @@ export type AiSettings = {
   providerType: 'openai' | 'anthropic';
   baseUrl: string;
   model: string;
+  apiKey: string;
   temperature: number;
   maxTokens: number;
   timeoutMs: number;
@@ -41,6 +47,8 @@ export type AndroidMvpSettings = {
   librarySort: string;
   minAudioDurationMs: number;
   restoreQueueOnLaunch: boolean;
+  keepAliveEnabled: boolean;
+  showBatteryOptimizationHint: boolean;
 };
 
 export type AppSettings = {

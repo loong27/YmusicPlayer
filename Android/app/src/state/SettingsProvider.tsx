@@ -4,6 +4,7 @@ import { defaultSettings, loadSettings, saveSettings, type PersistedSettings } f
 type SettingsContextValue = {
   settings: PersistedSettings;
   isLoading: boolean;
+  lastError?: string;
   updateSettings: (next: PersistedSettings | ((current: PersistedSettings) => PersistedSettings)) => Promise<void>;
 };
 
@@ -12,6 +13,7 @@ const SettingsContext = createContext<SettingsContextValue | undefined>(undefine
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<PersistedSettings>(defaultSettings);
   const [isLoading, setIsLoading] = useState(true);
+  const [lastError, setLastError] = useState<string>();
 
   useEffect(() => {
     let isMounted = true;
@@ -21,7 +23,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           setSettings(value);
         }
       })
-      .catch(() => undefined)
+      .catch(error => {
+        if (isMounted) {
+          setLastError(error instanceof Error ? error.message : '读取设置失败');
+        }
+      })
       .finally(() => {
         if (isMounted) {
           setIsLoading(false);
@@ -33,16 +39,27 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const updateSettings = useCallback(async (next: PersistedSettings | ((current: PersistedSettings) => PersistedSettings)) => {
-    const resolved = typeof next === 'function' ? next(settings) : next;
-    setSettings(resolved);
-    await saveSettings(resolved);
-  }, [settings]);
+    let resolved: PersistedSettings = defaultSettings;
+    setSettings(current => {
+      resolved = typeof next === 'function' ? next(current) : next;
+      return resolved;
+    });
+    try {
+      await saveSettings(resolved);
+      setLastError(undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '保存设置失败';
+      setLastError(message);
+      throw error;
+    }
+  }, []);
 
   const value = useMemo<SettingsContextValue>(() => ({
     settings,
     isLoading,
+    lastError,
     updateSettings,
-  }), [isLoading, settings, updateSettings]);
+  }), [isLoading, lastError, settings, updateSettings]);
 
   return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
 }

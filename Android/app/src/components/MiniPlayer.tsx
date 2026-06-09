@@ -1,12 +1,13 @@
 import React, { useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import type { AccessibilityActionEvent } from 'react-native';
 import { Artwork } from './Artwork';
 import { playerGlyphs } from '../constants/playerGlyphs';
 import { usePlayer } from '../state/PlayerProvider';
 import type { AppColorScheme } from '../theme/colors';
 import { formatDuration } from '../utils/format';
 import { clampProgress } from '../utils/library';
-import { getPlaybackUiState, runPlayerAction } from '../utils/playerUi';
+import { clampSeekPosition, getPlaybackUiState, runPlayerAction } from '../utils/playerUi';
 
 export function MiniPlayer({ colors, onOpen }: { colors: AppColorScheme; onOpen: () => void }) {
   const player = usePlayer();
@@ -20,9 +21,25 @@ export function MiniPlayer({ colors, onOpen }: { colors: AppColorScheme; onOpen:
   const { isBusy, isErrored, statusText } = getPlaybackUiState(player.playbackState);
   const durationMs = player.durationMs || (player.currentTrack.durationSeconds || 0) * 1000;
   const progress = durationMs > 0 ? clampProgress(player.positionMs / durationMs) : 0;
+  const progressAccessibilityText = `${formatDuration(Math.floor(player.positionMs / 1000))} / ${formatDuration(Math.floor(durationMs / 1000))}`;
   const subtitle = isErrored
     ? `播放失败${player.error ? ` · ${player.error}` : ''}`
     : statusText || `${player.currentTrack.artist} · ${formatDuration(Math.floor(player.positionMs / 1000))}`;
+
+  const seekToPosition = (positionMs: number) => {
+    if (durationMs <= 0) {
+      return;
+    }
+    runPlayerAction(() => player.seekTo(clampSeekPosition(positionMs, durationMs)));
+  };
+
+  const handleProgressAccessibilityAction = (event: AccessibilityActionEvent) => {
+    if (event.nativeEvent.actionName === 'increment') {
+      seekToPosition(player.positionMs + 10_000);
+    } else if (event.nativeEvent.actionName === 'decrement') {
+      seekToPosition(player.positionMs - 10_000);
+    }
+  };
 
   return (
     <View style={styles.wrap}>
@@ -63,7 +80,11 @@ export function MiniPlayer({ colors, onOpen }: { colors: AppColorScheme; onOpen:
         <Pressable
           accessibilityRole="adjustable"
           accessibilityLabel="迷你播放器进度"
+          accessibilityValue={{ min: 0, max: Math.floor(durationMs / 1000), now: Math.floor(player.positionMs / 1000), text: progressAccessibilityText }}
+          accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+          accessibilityState={{ disabled: durationMs <= 0 }}
           disabled={durationMs <= 0}
+          onAccessibilityAction={handleProgressAccessibilityAction}
           onLayout={event => {
             progressWidthRef.current = event.nativeEvent.layout.width;
           }}
@@ -72,7 +93,7 @@ export function MiniPlayer({ colors, onOpen }: { colors: AppColorScheme; onOpen:
               return;
             }
             const nextProgress = clampProgress(event.nativeEvent.locationX / progressWidthRef.current);
-            runPlayerAction(() => player.seekTo(durationMs * nextProgress));
+            seekToPosition(durationMs * nextProgress);
           }}
           style={styles.progressTouch}
         >

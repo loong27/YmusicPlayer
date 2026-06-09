@@ -35,34 +35,41 @@ class DownloadModule(private val reactContext: ReactApplicationContext) : ReactC
       putExtra(MusicDownloadService.EXTRA_SOURCE_URL, sourceUrl)
       putExtra(MusicDownloadService.EXTRA_TITLE, task.getString("title"))
     }
-    ContextCompat.startForegroundService(reactContext, intent)
-    promise.resolve(statusMap(taskId, "queued"))
+    try {
+      ContextCompat.startForegroundService(reactContext, intent)
+      promise.resolve(statusMap(taskId, "queued"))
+    } catch (error: Exception) {
+      DownloadEvents.status(taskId, "failed", 0.0, error = "启动下载服务失败：${error.message ?: error.javaClass.simpleName}")
+      promise.reject("E_DOWNLOAD_SERVICE_START", "启动下载服务失败", error)
+    }
   }
 
   @ReactMethod
   fun pause(taskId: String, promise: Promise) {
-    sendAction(MusicDownloadService.ACTION_PAUSE, taskId)
-    promise.resolve(statusMap(taskId, "paused"))
+    sendAction(MusicDownloadService.ACTION_PAUSE, taskId, promise, "paused")
   }
 
   @ReactMethod
   fun resume(taskId: String, promise: Promise) {
-    sendAction(MusicDownloadService.ACTION_RESUME, taskId)
-    promise.resolve(statusMap(taskId, "queued"))
+    sendAction(MusicDownloadService.ACTION_RESUME, taskId, promise, "queued")
   }
 
   @ReactMethod
   fun cancel(taskId: String, promise: Promise) {
-    sendAction(MusicDownloadService.ACTION_CANCEL, taskId)
-    promise.resolve(statusMap(taskId, "canceled"))
+    sendAction(MusicDownloadService.ACTION_CANCEL, taskId, promise, "canceled")
   }
 
-  private fun sendAction(actionName: String, taskId: String) {
+  private fun sendAction(actionName: String, taskId: String, promise: Promise, resolvedStatus: String) {
     val intent = Intent(reactContext, MusicDownloadService::class.java).apply {
       action = actionName
       putExtra(MusicDownloadService.EXTRA_TASK_ID, taskId)
     }
-    reactContext.startService(intent)
+    try {
+      reactContext.startService(intent)
+      promise.resolve(statusMap(taskId, resolvedStatus))
+    } catch (error: Exception) {
+      promise.reject("E_DOWNLOAD_SERVICE_START", "启动下载服务失败", error)
+    }
   }
 
   private fun statusMap(taskId: String, status: String) = Arguments.createMap().apply {

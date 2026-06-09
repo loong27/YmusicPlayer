@@ -9,6 +9,7 @@ import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.ymusicplayerandroid.download.DownloadPackage
 import com.ymusicplayerandroid.media.LocalMusicPackage
 import com.ymusicplayerandroid.player.PlayerPackage
+import com.ymusicplayerandroid.settings.AndroidSettingsPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -20,6 +21,7 @@ class MainApplication : Application(), ReactApplication {
           add(LocalMusicPackage())
           add(PlayerPackage())
           add(DownloadPackage())
+          add(AndroidSettingsPackage())
         },
     )
   }

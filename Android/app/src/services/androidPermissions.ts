@@ -7,6 +7,18 @@ export type AndroidPermissionStatus =
   | 'denied'
   | 'blocked';
 
+export type BatteryOptimizationStatus = {
+  status: 'ignored' | 'not_ignored' | 'unavailable' | 'unknown';
+  isIgnoringBatteryOptimizations: boolean;
+};
+
+const androidSettings = NativeModules.AndroidSettings as
+  | {
+      getBatteryOptimizationStatus(): Promise<BatteryOptimizationStatus>;
+      requestIgnoreBatteryOptimizations(): Promise<BatteryOptimizationStatus>;
+    }
+  | undefined;
+
 const readMediaAudioPermission = ((
   PermissionsAndroid.PERMISSIONS as Record<string, string>
 ).READ_MEDIA_AUDIO || 'android.permission.READ_MEDIA_AUDIO') as Permission;
@@ -89,6 +101,20 @@ export async function requestNotificationPermission(): Promise<AndroidPermission
     return 'blocked';
   }
   return 'denied';
+}
+
+export async function getBatteryOptimizationStatus(): Promise<BatteryOptimizationStatus> {
+  if (Platform.OS !== 'android' || !androidSettings) {
+    return { status: 'unavailable', isIgnoringBatteryOptimizations: true };
+  }
+  return androidSettings.getBatteryOptimizationStatus().catch(() => ({ status: 'unknown', isIgnoringBatteryOptimizations: false }));
+}
+
+export async function requestIgnoreBatteryOptimizations(): Promise<BatteryOptimizationStatus> {
+  if (Platform.OS !== 'android' || !androidSettings) {
+    return { status: 'unavailable', isIgnoringBatteryOptimizations: true };
+  }
+  return androidSettings.requestIgnoreBatteryOptimizations();
 }
 
 export function openAndroidAppSettings() {

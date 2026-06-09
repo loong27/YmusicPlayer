@@ -33,7 +33,7 @@ export function createDownloadTask(track: Track, quality: DownloadTask['quality'
     status: 'queued',
     progress: 0,
     targetUri: undefined,
-    sourceUrl: track.streamUri || track.localUri,
+    sourceUrl: track.source === 'remote' ? track.streamUri : undefined,
     createdAt: now,
     updatedAt: now,
   };

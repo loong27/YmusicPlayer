@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BackHandler, StatusBar, StyleSheet, useColorScheme, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AppErrorBoundary } from './src/components/AppErrorBoundary';
 import { MiniPlayer } from './src/components/MiniPlayer';
 import { AlbumDetailScreen, ArtistDetailScreen } from './src/screens/ArtistAlbumDetailScreen';
 import { TabBar } from './src/components/TabBar';
@@ -29,7 +30,9 @@ function App() {
         <CollectionProvider>
           <DownloadProvider>
             <PlayerProvider>
-              <AppContent />
+              <AppErrorBoundary>
+                <AppContent />
+              </AppErrorBoundary>
             </PlayerProvider>
           </DownloadProvider>
         </CollectionProvider>

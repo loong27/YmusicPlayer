@@ -55,11 +55,9 @@ class MusicPlaybackService : MediaSessionService() {
     mainHandler.removeCallbacks(releaseWhenIdle)
     mediaSession?.run {
       player.removeListener(listener)
-      player.release()
       release()
     }
     mediaSession = null
-    PlaybackHolder.clear()
     super.onDestroy()
   }
 

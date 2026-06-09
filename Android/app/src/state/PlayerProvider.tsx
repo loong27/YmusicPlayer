@@ -4,6 +4,7 @@ import type { AppStateStatus } from 'react-native';
 import type { NativePlayerState, PlayerDiagnostic, PlayerSnapshot, RepeatMode } from '../models/Player';
 import { emptyPlayerSnapshot } from '../models/Player';
 import type { Track } from '../models/Track';
+import { ensurePlayableTrack } from '../services/cloudMusic';
 import { requestNotificationPermission } from '../services/androidPermissions';
 import { addPlayerEventListener, playerNative } from '../services/playerNative';
 import { clearPlayerState, loadPlayerState, savePlayerState } from '../services/storage';
@@ -94,10 +95,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       if (settings.restoreQueueOnLaunch) {
         const persisted = await loadPlayerState();
         if (persisted && persisted.queue.length > 0) {
-          persistedQueue = persisted.queue;
+          const restorableQueue = persisted.queue.filter(track => track.localUri || track.streamUri);
+          if (restorableQueue.length === 0) {
+            return;
+          }
+          const restoredTrackId = persisted.queue[persisted.currentIndex]?.id;
+          const restoredIndex = Math.max(0, restorableQueue.findIndex(track => track.id === restoredTrackId));
+          persistedQueue = restorableQueue;
           const restoredNativeState = await playerNative.restoreQueue(
-            persisted.queue,
-            persisted.currentIndex,
+            restorableQueue,
+            restoredIndex,
             persisted.positionMs,
             persisted.repeatMode,
             persisted.shuffleEnabled,
@@ -107,9 +114,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             setSnapshot(previous => ({
               ...previous,
               ...restoredNativeState,
-              queue: persisted.queue,
+              queue: restorableQueue,
               currentIndex: restoredNativeState.currentIndex,
-              currentTrack: persisted.queue[restoredNativeState.currentIndex],
+              currentTrack: restorableQueue[restoredNativeState.currentIndex],
               playbackState: 'paused',
             }));
           }
@@ -257,22 +264,34 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, [persistSnapshot, runCommand]);
 
+  const prepareQueueForNative = useCallback(async (queue: Track[], startIndex: number) => {
+    const safeIndex = Math.min(Math.max(startIndex, 0), queue.length - 1);
+    const preparedQueue = [...queue];
+    const selectedTrack = await ensurePlayableTrack(preparedQueue[safeIndex], settings, settings.cloudDefaultQuality);
+    preparedQueue[safeIndex] = selectedTrack;
+    const nativeQueue = preparedQueue.filter(track => track.localUri || track.streamUri || track.id === selectedTrack.id);
+    const nativeIndex = nativeQueue.findIndex(track => track.id === selectedTrack.id);
+    if (nativeIndex < 0) {
+      throw new Error('当前曲目缺少可播放地址');
+    }
+    return { queue: nativeQueue, startIndex: nativeIndex, selectedTrack };
+  }, [settings]);
+
   const playQueue = useCallback(async (queue: Track[], startIndex: number) => {
     if (queue.length === 0) {
       return;
     }
     requestNotificationPermission().catch(() => undefined);
-    const safeIndex = Math.min(Math.max(startIndex, 0), queue.length - 1);
-    const selectedTrack = queue[safeIndex];
-    await replaceQueue(queue, safeIndex, true);
+    const prepared = await prepareQueueForNative(queue, startIndex);
+    await replaceQueue(prepared.queue, prepared.startIndex, true);
     await recordPlay({
-      trackId: selectedTrack.id,
+      trackId: prepared.selectedTrack.id,
       playedAt: new Date().toISOString(),
       durationPlayedMs: 0,
       completedRatio: 0,
       source: 'library',
     });
-  }, [recordPlay, replaceQueue]);
+  }, [prepareQueueForNative, recordPlay, replaceQueue]);
 
   const syncQueue = useCallback(async (queue: Track[], currentIndex: number) => {
     const previousSnapshot = snapshotRef.current;
@@ -310,17 +329,26 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     await playQueue(currentSnapshot.queue, index);
   }, [playQueue]);
 
+  const enqueueTrack = useCallback(async (track: Track) => {
+    const playableTrack = await ensurePlayableTrack(track, settings, settings.cloudDefaultQuality);
+    return syncQueue([...snapshotRef.current.queue, playableTrack], snapshotRef.current.currentIndex >= 0 ? snapshotRef.current.currentIndex : 0);
+  }, [settings, syncQueue]);
+
+  const playNextTrack = useCallback(async (track: Track) => {
+    const currentSnapshot = snapshotRef.current;
+    const playableTrack = await ensurePlayableTrack(track, settings, settings.cloudDefaultQuality);
+    const insertIndex = Math.max(0, currentSnapshot.currentIndex + 1);
+    const nextQueue = [...currentSnapshot.queue.slice(0, insertIndex), playableTrack, ...currentSnapshot.queue.slice(insertIndex)];
+    return syncQueue(nextQueue, currentSnapshot.currentIndex >= 0 ? currentSnapshot.currentIndex : 0);
+  }, [settings, syncQueue]);
+
   const value = useMemo<PlayerContextValue>(() => ({
     ...snapshot,
     playQueue,
     playQueueItem,
     replaceQueue,
-    addToQueue: (track: Track) => syncQueue([...snapshot.queue, track], snapshot.currentIndex >= 0 ? snapshot.currentIndex : 0),
-    playNext: (track: Track) => {
-      const insertIndex = Math.max(0, snapshot.currentIndex + 1);
-      const nextQueue = [...snapshot.queue.slice(0, insertIndex), track, ...snapshot.queue.slice(insertIndex)];
-      return syncQueue(nextQueue, snapshot.currentIndex >= 0 ? snapshot.currentIndex : 0);
-    },
+    addToQueue: enqueueTrack,
+    playNext: playNextTrack,
     removeFromQueue: (index: number) => {
       if (index < 0 || index >= snapshot.queue.length) {
         return Promise.resolve();
@@ -364,7 +392,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     previous: () => runCommand(playerNative.skipToPrevious).then(() => persistSnapshot()),
     setRepeatMode: (mode: RepeatMode) => runCommand(() => playerNative.setRepeatMode(mode)).then(() => persistSnapshot()),
     setShuffleEnabled: (enabled: boolean) => runCommand(() => playerNative.setShuffleEnabled(enabled)).then(() => persistSnapshot()),
-  }), [persistSnapshot, playQueue, playQueueItem, replaceQueue, runCommand, snapshot, syncQueue]);
+  }), [enqueueTrack, persistSnapshot, playNextTrack, playQueue, playQueueItem, replaceQueue, runCommand, snapshot, syncQueue]);
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;
 }

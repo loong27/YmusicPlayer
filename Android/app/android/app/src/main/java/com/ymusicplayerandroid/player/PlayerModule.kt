@@ -25,8 +25,17 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 class PlayerModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
   private val mainHandler = Handler(Looper.getMainLooper())
   private var lastError: PlaybackException? = null
+  private var boundPlayer: Player? = null
   private val player: Player
-    get() = PlaybackHolder.getOrCreatePlayer(reactContext)
+    get() {
+      val current = PlaybackHolder.getOrCreatePlayer(reactContext)
+      if (boundPlayer !== current) {
+        boundPlayer?.removeListener(listener)
+        current.addListener(listener)
+        boundPlayer = current
+      }
+      return current
+    }
   private val positionTicker = object : Runnable {
     override fun run() {
       emitPosition()
@@ -86,7 +95,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
 
   init {
     mainHandler.post {
-      player.addListener(listener)
+      player
     }
   }
 
@@ -94,7 +103,8 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
 
   override fun invalidate() {
     mainHandler.removeCallbacks(positionTicker)
-    player.removeListener(listener)
+    boundPlayer?.removeListener(listener)
+    boundPlayer = null
     super.invalidate()
   }
 
@@ -401,10 +411,22 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
 
   private fun startPlaybackService(foreground: Boolean) {
     val intent = Intent(reactContext, MusicPlaybackService::class.java)
-    if (foreground) {
-      ContextCompat.startForegroundService(reactContext, intent)
-    } else {
-      reactContext.startService(intent)
+    try {
+      if (foreground) {
+        ContextCompat.startForegroundService(reactContext, intent)
+      } else {
+        reactContext.startService(intent)
+      }
+      emitDiagnostic("serviceStartSuccess") { map ->
+        map.putBoolean("foreground", foreground)
+      }
+    } catch (error: Exception) {
+      emitDiagnostic("serviceStartFailed") { map ->
+        map.putBoolean("foreground", foreground)
+        map.putString("exception", error.javaClass.simpleName)
+        map.putString("message", error.message ?: "启动播放服务失败")
+      }
+      throw IllegalStateException("启动播放服务失败：${error.message ?: error.javaClass.simpleName}", error)
     }
   }
 

@@ -60,12 +60,15 @@ class MusicDownloadService : Service() {
   }
 
   private fun enqueue(taskId: String, sourceUrl: String?, title: String) {
-    if (sourceUrl.isNullOrBlank()) {
-      DownloadEvents.status(taskId, "failed", 0.0, error = "缺少可下载 URL")
-      return
-    }
     val control = DownloadControl(title)
     activeTasks[taskId] = control
+    updateForeground()
+    if (sourceUrl.isNullOrBlank()) {
+      activeTasks.remove(taskId)
+      DownloadEvents.status(taskId, "failed", 0.0, error = "缺少可下载 URL")
+      updateForeground()
+      return
+    }
     DownloadEvents.status(taskId, "downloading", 0.0)
     executor.execute { download(taskId, sourceUrl, control) }
   }
@@ -86,6 +89,9 @@ class MusicDownloadService : Service() {
     var connection: HttpURLConnection? = null
     try {
       val url = URL(sourceUrl)
+      if (url.protocol != "http" && url.protocol != "https") {
+        throw IllegalArgumentException("本地文件无需下载或暂不支持该下载链接")
+      }
       connection = (url.openConnection() as HttpURLConnection).apply {
         connectTimeout = 15_000
         readTimeout = 30_000
@@ -113,7 +119,7 @@ class MusicDownloadService : Service() {
             downloadedBytes += read
             val progress = if (totalBytes > 0) downloadedBytes.toDouble() / totalBytes else 0.0
             DownloadEvents.status(taskId, "downloading", progress, downloadedBytes, totalBytes)
-            notificationManager.notify(NOTIFICATION_ID, buildNotification(activeTasks.size, progress))
+            notifyProgress(progress)
           }
         }
       }
@@ -130,11 +136,29 @@ class MusicDownloadService : Service() {
   }
 
   private fun updateForeground() {
-    if (activeTasks.isEmpty()) {
-      stopForeground(STOP_FOREGROUND_REMOVE)
-      stopSelf()
-    } else {
-      startForeground(NOTIFICATION_ID, buildNotification(activeTasks.size, 0.0))
+    try {
+      if (activeTasks.isEmpty()) {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+      } else {
+        startForeground(NOTIFICATION_ID, buildNotification(activeTasks.size, 0.0))
+      }
+    } catch (error: Exception) {
+      activeTasks.keys.forEach { taskId ->
+        DownloadEvents.status(taskId, "failed", 0.0, error = "下载前台服务启动失败：${error.message ?: error.javaClass.simpleName}")
+      }
+      activeTasks.clear()
+      try {
+        stopSelf()
+      } catch (_: Exception) {
+      }
+    }
+  }
+
+  private fun notifyProgress(progress: Double) {
+    try {
+      notificationManager.notify(NOTIFICATION_ID, buildNotification(activeTasks.size, progress))
+    } catch (_: Exception) {
     }
   }
 
