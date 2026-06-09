@@ -55,10 +55,10 @@ function Info({ label, value, colors, selectable }: { label: string; value: stri
 const styles = StyleSheet.create({
   screen: { gap: 12, padding: 16, paddingBottom: 24 },
   card: { alignItems: 'center', borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, gap: 9, padding: 20 },
-  title: { fontSize: 21, fontWeight: '900', textAlign: 'center' },
+  title: { fontSize: 21, fontWeight: '700', textAlign: 'center' },
   meta: { fontSize: 13, lineHeight: 20, textAlign: 'center' },
   section: { borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, gap: 10, padding: 14 },
-  sectionTitle: { fontSize: 16, fontWeight: '900' },
+  sectionTitle: { fontSize: 16, fontWeight: '700' },
   info: { borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, gap: 5, padding: 12 },
   label: { fontSize: 12, fontWeight: '800' },
   value: { fontSize: 14, lineHeight: 20 },

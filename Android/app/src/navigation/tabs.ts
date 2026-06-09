@@ -1,3 +1,5 @@
+import { iconNames } from '../constants/icons';
+
 export type TabId = 'library' | 'discover' | 'downloads' | 'profile';
 
 export type TabItem = {
@@ -7,8 +9,8 @@ export type TabItem = {
 };
 
 export const tabs: TabItem[] = [
-  { id: 'library', label: '曲库', icon: '♫' },
-  { id: 'discover', label: '发现', icon: '◎' },
-  { id: 'downloads', label: '下载', icon: '⇩' },
-  { id: 'profile', label: '我的', icon: '♡' },
+  { id: 'library', label: '曲库', icon: iconNames.tabLibrary },
+  { id: 'discover', label: '发现', icon: iconNames.tabDiscover },
+  { id: 'downloads', label: '下载', icon: iconNames.tabDownloads },
+  { id: 'profile', label: '我的', icon: iconNames.tabProfile },
 ];

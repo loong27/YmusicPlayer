@@ -1,5 +1,6 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Icon } from '../constants/icons';
 import type { AppColorScheme } from '../theme/colors';
 import type { TabId, TabItem } from '../navigation/tabs';
 
@@ -15,7 +16,8 @@ export function TabBar({ tabs, activeTab, colors, onTabPress }: TabBarProps) {
     <View style={[styles.container, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
       {tabs.map(tab => {
         const active = tab.id === activeTab;
-        const iconBubbleColor = { backgroundColor: active ? colors.primarySoft : 'transparent' };
+        const iconColor = active ? colors.primary : colors.textMuted;
+        const labelColor = active ? colors.primary : colors.textMuted;
         return (
           <Pressable
             key={tab.id}
@@ -24,10 +26,9 @@ export function TabBar({ tabs, activeTab, colors, onTabPress }: TabBarProps) {
             accessibilityState={{ selected: active }}
             style={styles.item}
             onPress={() => onTabPress(tab.id)}>
-            <View style={[styles.iconBubble, iconBubbleColor]}>
-              <Text style={[styles.icon, { color: active ? colors.primary : colors.textMuted }]}>{tab.icon}</Text>
-            </View>
-            <Text style={[styles.label, { color: active ? colors.primary : colors.textMuted }]}>{tab.label}</Text>
+            <Icon name={tab.icon} size={22} color={iconColor} />
+            <Text style={[styles.label, { color: labelColor }]}>{tab.label}</Text>
+            {active && <View style={[styles.dot, { backgroundColor: colors.primary }]} />}
           </Pressable>
         );
       })}
@@ -50,21 +51,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minHeight: 50,
   },
-  iconBubble: {
-    alignItems: 'center',
-    borderRadius: 999,
-    height: 28,
-    justifyContent: 'center',
-    minWidth: 42,
-    paddingHorizontal: 10,
-  },
-  icon: {
-    fontSize: 18,
-    fontWeight: '900',
-    lineHeight: 22,
-  },
   label: {
     fontSize: 11,
     fontWeight: '700',
+  },
+  dot: {
+    borderRadius: 2,
+    height: 4,
+    marginTop: 1,
+    width: 4,
   },
 });

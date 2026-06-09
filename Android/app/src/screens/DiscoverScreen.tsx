@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Artwork } from '../components/Artwork';
 import { InfoCard } from '../components/InfoCard';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { playerGlyphs } from '../constants/playerGlyphs';
+import { Icon, iconNames } from '../constants/icons';
 import { useLocalMusicLibrary } from '../hooks/useLocalMusicLibrary';
 import type { Track } from '../models/Track';
 import { buildAiRecommendationSummary, buildLocalRecommendations } from '../services/recommendation';
@@ -106,8 +106,8 @@ export function DiscoverScreen({ colors }: { colors: AppColorScheme }) {
             <Text style={[styles.query, { color: colors.textMuted }]} numberOfLines={1}>云搜索：{item.query.searchQuery}</Text>
             {item.track ? (
               <View style={styles.cardActionRow}>
-                <PillButton label="播放" accessibilityLabel={`播放 ${item.track.title}`} colors={colors} icon={playerGlyphs.play} onPress={() => playRecommendation(item.track as Track)} />
-                <PillButton label="下首" accessibilityLabel={`下首播放 ${item.track.title}`} colors={colors} icon={playerGlyphs.next} onPress={() => playNext(item.track as Track)} />
+                <PillButton label="播放" accessibilityLabel={`播放 ${item.track.title}`} colors={colors} iconName={iconNames.play} onPress={() => playRecommendation(item.track as Track)} />
+                <PillButton label="下首" accessibilityLabel={`下首播放 ${item.track.title}`} colors={colors} iconName={iconNames.skipNext} onPress={() => playNext(item.track as Track)} />
               </View>
             ) : null}
           </View>
@@ -126,10 +126,11 @@ function HeroActionButton({ label, colors, onPress }: { label: string; colors: A
   );
 }
 
-function PillButton({ label, accessibilityLabel, colors, icon, onPress }: { label: string; accessibilityLabel: string; colors: AppColorScheme; icon: string; onPress: () => void }) {
+function PillButton({ label, accessibilityLabel, colors, iconName, onPress }: { label: string; accessibilityLabel: string; colors: AppColorScheme; iconName: string; onPress: () => void }) {
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={accessibilityLabel} onPress={onPress} style={[styles.pillButton, { backgroundColor: colors.primarySoft, borderColor: colors.border }]}>
-      <Text style={[styles.pillText, { color: colors.primary }]}>{icon} {label}</Text>
+      <Icon name={iconName} size={14} color={colors.primary} />
+      <Text style={[styles.pillText, { color: colors.primary }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -139,23 +140,23 @@ const styles = StyleSheet.create({
   content: { gap: 14, padding: 16, paddingBottom: 24 },
   hero: { borderRadius: 26, borderWidth: StyleSheet.hairlineWidth, gap: 10, padding: 20 },
   heroLabel: { color: 'rgba(255,255,255,0.78)', fontSize: 13, fontWeight: '800' },
-  heroTitle: { color: '#ffffff', fontSize: 27, fontWeight: '900' },
+  heroTitle: { color: '#ffffff', fontSize: 27, fontWeight: '700' },
   heroText: { color: 'rgba(255,255,255,0.82)', fontSize: 14, lineHeight: 21 },
   heroActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   heroActionButton: { alignSelf: 'flex-start', backgroundColor: '#ffffff', borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
-  heroActionText: { fontSize: 13, fontWeight: '900' },
+  heroActionText: { fontSize: 13, fontWeight: '700' },
   heroButton: { alignSelf: 'flex-start', backgroundColor: '#ffffff', borderRadius: 999, paddingHorizontal: 16, paddingVertical: 9 },
-  heroButtonText: { fontSize: 13, fontWeight: '900' },
+  heroButtonText: { fontSize: 13, fontWeight: '700' },
   recommendation: { alignItems: 'center', borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 12, marginBottom: 10, padding: 12 },
   recommendationMain: { flex: 1, gap: 6, minWidth: 0 },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   badge: { borderRadius: 999, fontSize: 11, fontWeight: '800', overflow: 'hidden', paddingHorizontal: 8, paddingVertical: 3 },
-  title: { fontSize: 17, fontWeight: '900' },
+  title: { fontSize: 17, fontWeight: '700' },
   reason: { fontSize: 13, lineHeight: 20 },
   query: { fontSize: 12 },
   cardActionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingTop: 2 },
   pillButton: { borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 10, paddingVertical: 6 },
-  pillText: { fontSize: 12, fontWeight: '900' },
+  pillText: { fontSize: 12, fontWeight: '700' },
   privacy: { fontSize: 12, lineHeight: 18, paddingHorizontal: 4 },
   disabled: { opacity: 0.55 },
 });

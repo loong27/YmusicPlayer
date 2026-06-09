@@ -71,5 +71,5 @@ const styles = StyleSheet.create({
   listContent: { paddingVertical: 120 },
   lineWrap: { paddingHorizontal: 18, paddingVertical: 8 },
   line: { fontSize: 15, lineHeight: 25, textAlign: 'center' },
-  activeLine: { fontSize: 19, fontWeight: '900', lineHeight: 30 },
+  activeLine: { fontSize: 19, fontWeight: '700', lineHeight: 30 },
 });

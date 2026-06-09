@@ -3,7 +3,7 @@ import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native
 import { Artwork } from '../components/Artwork';
 import { InfoCard } from '../components/InfoCard';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { playerGlyphs } from '../constants/playerGlyphs';
+import { Icon, iconNames } from '../constants/icons';
 import { usePlayer } from '../state/PlayerProvider';
 import type { AppColorScheme } from '../theme/colors';
 import { formatTrackMeta } from '../utils/library';
@@ -61,8 +61,12 @@ export function QueueScreen({ colors, onBack }: { colors: AppColorScheme; onBack
                   </View>
                 </Pressable>
                 <View style={styles.actions}>
-                  <TextButton label={playerGlyphs.up} accessibilityLabel="上移" colors={colors} disabled={index === 0} onPress={() => runPlayerAction(() => player.moveQueueItem(index, Math.max(0, index - 1)))} />
-                  <TextButton label={playerGlyphs.down} accessibilityLabel="下移" colors={colors} disabled={index === player.queue.length - 1} onPress={() => runPlayerAction(() => player.moveQueueItem(index, Math.min(player.queue.length - 1, index + 1)))} />
+                  <Pressable accessibilityRole="button" accessibilityLabel="上移" disabled={index === 0} onPress={() => runPlayerAction(() => player.moveQueueItem(index, Math.max(0, index - 1)))} style={[styles.textButton, { backgroundColor: colors.surfaceStrong, borderColor: colors.border }, index === 0 ? styles.disabled : null]}>
+                    <Icon name={iconNames.chevronUp} size={16} color={colors.textMuted} />
+                  </Pressable>
+                  <Pressable accessibilityRole="button" accessibilityLabel="下移" disabled={index === player.queue.length - 1} onPress={() => runPlayerAction(() => player.moveQueueItem(index, Math.min(player.queue.length - 1, index + 1)))} style={[styles.textButton, { backgroundColor: colors.surfaceStrong, borderColor: colors.border }, index === player.queue.length - 1 ? styles.disabled : null]}>
+                    <Icon name={iconNames.chevronDown} size={16} color={colors.textMuted} />
+                  </Pressable>
                   <TextButton label="移除" colors={colors} danger onPress={() => runPlayerAction(() => player.removeFromQueue(index))} />
                 </View>
               </View>
@@ -95,21 +99,21 @@ const styles = StyleSheet.create({
   screen: { flex: 1 },
   content: { flex: 1, gap: 12, padding: 16 },
   summary: { alignItems: 'center', borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 12, justifyContent: 'space-between', padding: 14 },
-  summaryTitle: { fontSize: 18, fontWeight: '900' },
+  summaryTitle: { fontSize: 18, fontWeight: '700' },
   summaryMeta: { fontSize: 12, marginTop: 3 },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   item: { alignItems: 'center', borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 10, marginBottom: 10, padding: 12 },
   itemMain: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 10, minWidth: 0 },
   info: { flex: 1, gap: 4, minWidth: 0 },
   titleRow: { alignItems: 'center', flexDirection: 'row', gap: 8, minWidth: 0 },
-  title: { flex: 1, fontSize: 15, fontWeight: '900' },
-  activeBadge: { borderRadius: 999, color: '#ffffff', fontSize: 10, fontWeight: '900', overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 3 },
+  title: { flex: 1, fontSize: 15, fontWeight: '700' },
+  activeBadge: { borderRadius: 999, color: '#ffffff', fontSize: 10, fontWeight: '700', overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 3 },
   meta: { fontSize: 12 },
   actions: { alignItems: 'center', flexDirection: 'row', gap: 6 },
   error: { fontSize: 13, textAlign: 'center' },
   button: { borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 8 },
-  buttonText: { fontSize: 13, fontWeight: '900' },
+  buttonText: { fontSize: 13, fontWeight: '700' },
   textButton: { alignItems: 'center', borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, minHeight: 34, minWidth: 34, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 6 },
-  textButtonLabel: { fontSize: 12, fontWeight: '900' },
+  textButtonLabel: { fontSize: 12, fontWeight: '700' },
   disabled: { opacity: 0.38 },
 });

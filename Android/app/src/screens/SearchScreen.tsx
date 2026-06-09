@@ -5,7 +5,7 @@ import { Artwork } from '../components/Artwork';
 import { InfoCard } from '../components/InfoCard';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { InlineNotice, StatusBadge } from '../components/SettingsControls';
-import { playerGlyphs } from '../constants/playerGlyphs';
+import { Icon, iconNames } from '../constants/icons';
 import { useLocalMusicLibrary } from '../hooks/useLocalMusicLibrary';
 import type { Track } from '../models/Track';
 import { searchCloudTracks } from '../services/cloudMusic';
@@ -124,7 +124,7 @@ export function SearchScreen({ colors, onBack }: { colors: AppColorScheme; onBac
           />
           {trimmedQuery ? (
             <Pressable accessibilityRole="button" accessibilityLabel="清空搜索关键词" onPress={clearSearch} hitSlop={8} style={styles.clearButton}>
-              <Text style={[styles.clearText, { color: colors.textMuted }]}>清空</Text>
+              <Icon name={iconNames.clear} size={18} color={colors.textMuted} />
             </Pressable>
           ) : null}
         </View>
@@ -187,24 +187,24 @@ function getDownloadTaskForTrack(tasks: DownloadTask[], track: Track, quality: D
 
 function getDownloadButtonState(track: Track, task?: DownloadTask) {
   if (track.source === 'local') {
-    return { label: '本地文件', text: '本地', disabled: true, busy: false, tone: 'info' as const };
+    return { label: '本地文件', text: '本地', disabled: true, busy: false, tone: 'info' as const, iconName: iconNames.musicNote };
   }
   if (!task) {
-    return { label: '下载', text: '下载', disabled: false, busy: false, tone: 'info' as const };
+    return { label: '下载', text: '下载', disabled: false, busy: false, tone: 'info' as const, iconName: iconNames.downloadOutline };
   }
   if (task.status === 'queued') {
-    return { label: '排队中', text: '排队', disabled: true, busy: false, tone: 'info' as const };
+    return { label: '排队中', text: '排队', disabled: true, busy: false, tone: 'info' as const, iconName: iconNames.loading };
   }
   if (task.status === 'downloading') {
-    return { label: '下载中', text: '下载中', disabled: true, busy: true, tone: 'info' as const };
+    return { label: '下载中', text: '下载中', disabled: true, busy: true, tone: 'info' as const, iconName: iconNames.loading };
   }
   if (task.status === 'paused') {
-    return { label: '下载已暂停', text: '暂停', disabled: true, busy: false, tone: 'warning' as const };
+    return { label: '下载已暂停', text: '暂停', disabled: true, busy: false, tone: 'warning' as const, iconName: iconNames.pauseCircle };
   }
   if (task.status === 'completed') {
-    return { label: '已下载', text: '已下载', disabled: true, busy: false, tone: 'success' as const };
+    return { label: '已下载', text: '已下载', disabled: true, busy: false, tone: 'success' as const, iconName: iconNames.success };
   }
-  return { label: '重试下载', text: '重试', disabled: false, busy: false, tone: 'error' as const };
+  return { label: '重试下载', text: '重试', disabled: false, busy: false, tone: 'error' as const, iconName: iconNames.refresh };
 }
 
 function TrackResult({ track, colors, downloadTask, onPlay, onPlayNext, onDownload }: { track: Track; colors: AppColorScheme; downloadTask?: DownloadTask; onPlay: () => void; onPlayNext: () => void; onDownload: () => void }) {
@@ -221,8 +221,8 @@ function TrackResult({ track, colors, downloadTask, onPlay, onPlayNext, onDownlo
         </View>
       </Pressable>
       <View style={styles.actions}>
-        <IconButton label="下首播放" text={playerGlyphs.next} colors={colors} onPress={onPlayNext} />
-        <DownloadButton label={downloadButton.label} text={downloadButton.text} colors={colors} disabled={downloadButton.disabled} busy={downloadButton.busy} onPress={onDownload} />
+        <IconButton label="下首播放" iconName={iconNames.skipNext} colors={colors} onPress={onPlayNext} />
+        <DownloadButton label={downloadButton.label} text={downloadButton.text} iconName={downloadButton.iconName} colors={colors} disabled={downloadButton.disabled} busy={downloadButton.busy} onPress={onDownload} />
       </View>
     </View>
   );
@@ -240,18 +240,18 @@ function ActionButton({ label, colors, muted, disabled, busy, onPress }: { label
   );
 }
 
-function IconButton({ label, text, colors, disabled, busy, onPress }: { label: string; text: string; colors: AppColorScheme; disabled?: boolean; busy?: boolean; onPress: () => void }) {
+function IconButton({ label, iconName, colors, disabled, busy, onPress }: { label: string; iconName: string; colors: AppColorScheme; disabled?: boolean; busy?: boolean; onPress: () => void }) {
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onPress} hitSlop={6} style={[styles.iconButton, { backgroundColor: colors.surfaceStrong, borderColor: colors.border }, disabled ? styles.disabled : null]}>
-      <Text style={[styles.iconText, { color: colors.text }]}>{text}</Text>
+      <Icon name={iconName} size={16} color={colors.textMuted} />
     </Pressable>
   );
 }
 
-function DownloadButton({ label, text, colors, disabled, busy, onPress }: { label: string; text: string; colors: AppColorScheme; disabled?: boolean; busy?: boolean; onPress: () => void }) {
+function DownloadButton({ label, text, iconName, colors, disabled, busy, onPress }: { label: string; text: string; iconName: string; colors: AppColorScheme; disabled?: boolean; busy?: boolean; onPress: () => void }) {
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onPress} hitSlop={6} style={[styles.downloadButton, { backgroundColor: colors.surfaceStrong, borderColor: colors.border }, disabled ? styles.disabled : null]}>
-      {busy ? <ActivityIndicator color={colors.text} size="small" /> : null}
+      {busy ? <ActivityIndicator color={colors.text} size="small" /> : <Icon name={iconName} size={16} color={colors.text} />}
       <Text style={[styles.downloadText, { color: colors.text }]}>{text}</Text>
     </Pressable>
   );
@@ -265,22 +265,20 @@ const styles = StyleSheet.create({
   inputWrap: { alignItems: 'center', borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 8, paddingRight: 12 },
   input: { flex: 1, fontSize: 15, paddingHorizontal: 15, paddingVertical: 10 },
   clearButton: { paddingHorizontal: 4, paddingVertical: 6 },
-  clearText: { fontSize: 13, fontWeight: '800' },
   error: { fontSize: 13, lineHeight: 19 },
   hint: { fontSize: 12 },
   emptyWrap: { paddingHorizontal: 16 },
   result: { alignItems: 'center', borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 10, marginHorizontal: 16, marginBottom: 10, padding: 10 },
   resultMain: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 11, minWidth: 0 },
   info: { flex: 1, gap: 4, minWidth: 0 },
-  title: { fontSize: 15, fontWeight: '900' },
+  title: { fontSize: 15, fontWeight: '700' },
   meta: { fontSize: 12 },
   actions: { flexDirection: 'row', gap: 6 },
   button: { borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 8 },
   buttonContent: { alignItems: 'center', flexDirection: 'row', gap: 7, justifyContent: 'center' },
-  buttonText: { fontSize: 13, fontWeight: '900' },
+  buttonText: { fontSize: 13, fontWeight: '700' },
   iconButton: { alignItems: 'center', borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, height: 40, justifyContent: 'center', width: 40 },
-  iconText: { fontSize: 13, fontWeight: '900' },
   downloadButton: { alignItems: 'center', borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 4, minHeight: 40, minWidth: 54, justifyContent: 'center', paddingHorizontal: 10 },
-  downloadText: { fontSize: 12, fontWeight: '900' },
+  downloadText: { fontSize: 12, fontWeight: '700' },
   disabled: { opacity: 0.45 },
 });

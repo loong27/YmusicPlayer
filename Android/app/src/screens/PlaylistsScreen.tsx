@@ -3,6 +3,7 @@ import { Alert, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'r
 import { InfoCard } from '../components/InfoCard';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { useCollection } from '../state/CollectionProvider';
+import { Icon, iconNames } from '../constants/icons';
 import type { AppColorScheme } from '../theme/colors';
 
 export function PlaylistsScreen({ colors, onBack, onOpenPlaylist }: { colors: AppColorScheme; onBack: () => void; onOpenPlaylist: (playlistId: string) => void }) {
@@ -65,7 +66,7 @@ export function PlaylistsScreen({ colors, onBack, onOpenPlaylist }: { colors: Ap
         <View style={[styles.playlist, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Pressable accessibilityRole="button" accessibilityLabel={`打开歌单 ${item.name}`} onPress={() => onOpenPlaylist(item.id)} style={styles.playlistMain}>
             <View style={[styles.cover, { backgroundColor: item.fixed ? colors.primarySoft : colors.surfaceStrong, borderColor: colors.border }]}>
-              <Text style={[styles.coverText, { color: item.fixed ? colors.primary : colors.text }]}>{item.fixed ? '♡' : '♪'}</Text>
+              <Icon name={item.fixed ? iconNames.heartOutline : iconNames.musicNote} size={20} color={item.fixed ? colors.primary : colors.text} />
             </View>
             <View style={styles.playlistInfo}>
               <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>{item.name}</Text>
@@ -94,16 +95,15 @@ const styles = StyleSheet.create({
   emptyWrap: { paddingHorizontal: 16 },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   createCard: { borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, gap: 10, padding: 14 },
-  cardTitle: { fontSize: 17, fontWeight: '900' },
+  cardTitle: { fontSize: 17, fontWeight: '700' },
   input: { borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, fontSize: 15, paddingHorizontal: 15, paddingVertical: 10 },
   playlist: { alignItems: 'center', borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 10, marginHorizontal: 16, marginBottom: 10, padding: 10 },
   playlistMain: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 11, minWidth: 0 },
   cover: { alignItems: 'center', borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, height: 48, justifyContent: 'center', width: 48 },
-  coverText: { fontSize: 20, fontWeight: '900' },
   playlistInfo: { flex: 1, gap: 4, minWidth: 0 },
-  title: { fontSize: 16, fontWeight: '900' },
+  title: { fontSize: 16, fontWeight: '700' },
   meta: { fontSize: 12 },
   button: { borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 8 },
-  buttonText: { fontSize: 13, fontWeight: '900' },
+  buttonText: { fontSize: 13, fontWeight: '700' },
   disabled: { opacity: 0.45 },
 });

@@ -2,7 +2,7 @@ import React, { useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { AccessibilityActionEvent } from 'react-native';
 import { Artwork } from './Artwork';
-import { playerGlyphs } from '../constants/playerGlyphs';
+import { Icon, iconNames } from '../constants/icons';
 import { usePlayer } from '../state/PlayerProvider';
 import type { AppColorScheme } from '../theme/colors';
 import { formatDuration } from '../utils/format';
@@ -50,7 +50,7 @@ export function MiniPlayer({ colors, onOpen }: { colors: AppColorScheme; onOpen:
           onPress={onOpen}
           style={styles.openArea}
         >
-          <Artwork track={player.currentTrack} colors={colors} size={46} radius={13} />
+          <Artwork track={player.currentTrack} colors={colors} size={50} radius={14} />
           <View style={styles.info}>
             <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
               {player.currentTrack.title}
@@ -67,7 +67,11 @@ export function MiniPlayer({ colors, onOpen }: { colors: AppColorScheme; onOpen:
           onPress={() => runPlayerAction(player.togglePlayPause)}
           style={[styles.playButton, { backgroundColor: colors.primary }]}
         >
-          <Text style={styles.playText}>{isErrored ? '重试' : isPlaying ? playerGlyphs.pause : playerGlyphs.play}</Text>
+          {isErrored ? (
+            <Icon name={iconNames.refresh} size={16} color="#fff" />
+          ) : (
+            <Icon name={isPlaying ? iconNames.pause : iconNames.play} size={16} color="#fff" />
+          )}
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -75,7 +79,7 @@ export function MiniPlayer({ colors, onOpen }: { colors: AppColorScheme; onOpen:
           onPress={() => runPlayerAction(player.next)}
           style={[styles.nextButton, { backgroundColor: colors.surfaceStrong, borderColor: colors.border }]}
         >
-          <Text style={[styles.nextText, { color: colors.text }]}>{playerGlyphs.next}</Text>
+          <Icon name={iconNames.skipNext} size={16} color={colors.textMuted} />
         </Pressable>
         <Pressable
           accessibilityRole="adjustable"
@@ -130,12 +134,10 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   info: { flex: 1, gap: 3, minWidth: 0 },
-  title: { fontSize: 15, fontWeight: '800' },
+  title: { fontSize: 15, fontWeight: '700' },
   meta: { fontSize: 12 },
-  playButton: { alignItems: 'center', borderRadius: 999, minHeight: 38, justifyContent: 'center', minWidth: 38, paddingHorizontal: 10 },
+  playButton: { alignItems: 'center', borderRadius: 999, minHeight: 38, justifyContent: 'center', minWidth: 38 },
   nextButton: { alignItems: 'center', borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, height: 34, justifyContent: 'center', width: 34 },
-  playText: { color: '#ffffff', fontSize: 15, fontWeight: '900', marginLeft: 1 },
-  nextText: { fontSize: 10, fontWeight: '900' },
   progressTouch: { bottom: 0, height: 14, left: 0, justifyContent: 'flex-end', position: 'absolute', right: 0 },
   progressTrack: { height: 3, width: '100%' },
   progressFill: { borderRadius: 999, height: 3 },

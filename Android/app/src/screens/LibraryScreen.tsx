@@ -14,7 +14,7 @@ import { Artwork } from '../components/Artwork';
 import { InfoCard } from '../components/InfoCard';
 import { InlineNotice, StatusBadge } from '../components/SettingsControls';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { playerGlyphs } from '../constants/playerGlyphs';
+import { Icon, iconNames } from '../constants/icons';
 import { useLocalMusicLibrary } from '../hooks/useLocalMusicLibrary';
 import type { Track } from '../models/Track';
 import { usePlayer } from '../state/PlayerProvider';
@@ -178,12 +178,12 @@ export function LibraryScreen({ colors, onOpenSearch, onOpenTrackInfo, onOpenArt
             <Text style={[styles.sheetTitle, { color: colors.text }]} numberOfLines={1}>{actionTrack?.title}</Text>
             <Text style={[styles.sheetMeta, { color: colors.textMuted }]} numberOfLines={1}>{actionTrack ? formatTrackMeta(actionTrack) : ''}</Text>
             <View style={styles.sheetGrid}>
-              <SheetButton label="下首播放" colors={colors} onPress={() => runTrackAction(track => player.playNext(track))} />
-              <SheetButton label="加入队列" colors={colors} onPress={() => runTrackAction(track => player.addToQueue(track))} />
-              <SheetButton label="加入歌单" colors={colors} onPress={() => runTrackAction(addToPlaylist)} />
-              <SheetButton label="歌曲信息" colors={colors} onPress={() => runTrackAction(track => onOpenTrackInfo?.(track))} />
-              <SheetButton label="查看艺人" colors={colors} onPress={() => runTrackAction(track => onOpenArtist?.(getTrackArtistName(track)))} />
-              <SheetButton label="查看专辑" colors={colors} onPress={() => runTrackAction(track => onOpenAlbum?.(getTrackAlbumName(track)))} />
+              <SheetButton iconName={iconNames.skipNext} label="下首播放" colors={colors} onPress={() => runTrackAction(track => player.playNext(track))} />
+              <SheetButton iconName={iconNames.queueMusic} label="加入队列" colors={colors} onPress={() => runTrackAction(track => player.addToQueue(track))} />
+              <SheetButton iconName={iconNames.plus} label="加入歌单" colors={colors} onPress={() => runTrackAction(addToPlaylist)} />
+              <SheetButton iconName={iconNames.info} label="歌曲信息" colors={colors} onPress={() => runTrackAction(track => onOpenTrackInfo?.(track))} />
+              <SheetButton iconName={iconNames.musicNote} label="查看艺人" colors={colors} onPress={() => runTrackAction(track => onOpenArtist?.(getTrackArtistName(track)))} />
+              <SheetButton iconName={iconNames.coverArt} label="查看专辑" colors={colors} onPress={() => runTrackAction(track => onOpenAlbum?.(getTrackAlbumName(track)))} />
             </View>
           </View>
         </View>
@@ -290,7 +290,7 @@ function scanRuleMessage(settings: ReturnType<typeof useSettings>['settings']): 
 function emptyLibraryMessage(settings: ReturnType<typeof useSettings>['settings']): string {
   const filterText = settings.libraryExcludeNonMusicByName ? '已自动过滤录音、语音、铃声、通知音等非音乐音频；' : '';
   const customText = settings.libraryCustomExcludeKeywords.trim() ? '已应用自定义排除关键词；' : '';
-  return `没有发现符合音乐规则的文件。${filterText}${customText}如果短音乐未出现，可到“我的 > 曲库扫描”调整过滤规则后重新扫描。`;
+  return `没有发现符合音乐规则的文件。${filterText}${customText}如果短音乐未出现，可到"我的 > 曲库扫描"调整过滤规则后重新扫描。`;
 }
 
 function TrackRow({ item, colors, active, liked, onPress, onMore, onToggleLiked }: { item: Track; colors: AppColorScheme; active: boolean; liked: boolean; onPress: () => void; onMore: () => void; onToggleLiked: () => void }) {
@@ -306,10 +306,12 @@ function TrackRow({ item, colors, active, liked, onPress, onMore, onToggleLiked 
       <Text style={[styles.duration, { color: colors.textMuted }]}>{formatDuration(item.durationSeconds)}</Text>
       <View style={styles.trackActions}>
         <Pressable accessibilityRole="button" accessibilityLabel={liked ? '取消喜欢' : '喜欢歌曲'} onPress={onToggleLiked} style={[styles.iconButton, { backgroundColor: liked ? colors.primarySoft : colors.surfaceStrong, borderColor: colors.border }]}>
-          <Text style={[styles.iconText, { color: liked ? colors.danger : colors.textMuted }]}>{liked ? playerGlyphs.liked : playerGlyphs.unliked}</Text>
+          {liked
+            ? <Icon name={iconNames.heart} size={18} color={colors.danger} />
+            : <Icon name={iconNames.heartOutline} size={18} color={colors.textMuted} />}
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="更多操作" onPress={onMore} style={[styles.iconButton, { backgroundColor: colors.surfaceStrong, borderColor: colors.border }]}>
-          <Text style={[styles.iconText, { color: colors.text }]}>{playerGlyphs.more}</Text>
+          <Icon name={iconNames.dotsHorizontal} size={18} color={colors.textMuted} />
         </Pressable>
       </View>
     </View>
@@ -333,10 +335,13 @@ function ActionButton({ label, colors, disabled, onPress }: { label: string; col
   );
 }
 
-function SheetButton({ label, colors, onPress }: { label: string; colors: AppColorScheme; onPress: () => void }) {
+function SheetButton({ iconName, label, colors, onPress }: { iconName: string; label: string; colors: AppColorScheme; onPress: () => void }) {
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={[styles.sheetButton, { backgroundColor: colors.surfaceStrong, borderColor: colors.border }]}>
-      <Text style={[styles.sheetButtonText, { color: colors.text }]}>{label}</Text>
+      <View style={styles.sheetButtonInner}>
+        <Icon name={iconName} size={16} color={colors.text} />
+        <Text style={[styles.sheetButtonText, { color: colors.text }]}>{label}</Text>
+      </View>
     </Pressable>
   );
 }
@@ -353,7 +358,7 @@ const styles = StyleSheet.create({
   statsRow: { flexDirection: 'row', gap: 10 },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   statBox: { borderRadius: 16, flex: 1, padding: 12 },
-  statValue: { fontSize: 20, fontWeight: '900' },
+  statValue: { fontSize: 20, fontWeight: '700' },
   statLabel: { fontSize: 12, marginTop: 2 },
   button: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 15, paddingVertical: 9 },
   buttonDisabled: { opacity: 0.55 },
@@ -369,18 +374,18 @@ const styles = StyleSheet.create({
   trackRow: { alignItems: 'center', borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 9, marginHorizontal: 16, marginBottom: 9, padding: 10 },
   trackOpenArea: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 11, minWidth: 0 },
   trackMain: { flex: 1, gap: 4, minWidth: 0 },
-  trackTitle: { fontSize: 16, fontWeight: '800' },
-  trackMeta: { fontSize: 12 },
+  trackTitle: { fontSize: 16, fontWeight: '700' },
+  trackMeta: { fontSize: 12, fontWeight: '400' },
   trackActions: { flexDirection: 'row', gap: 6 },
   iconButton: { alignItems: 'center', borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, height: 34, justifyContent: 'center', width: 34 },
-  iconText: { fontSize: 18, fontWeight: '900' },
   duration: { fontSize: 12, minWidth: 38, textAlign: 'right' },
   modalRoot: { flex: 1, justifyContent: 'flex-end', padding: 16 },
   modalBackdrop: { backgroundColor: 'rgba(0, 0, 0, 0.38)', bottom: 0, left: 0, position: 'absolute', right: 0, top: 0 },
   actionSheet: { borderRadius: 24, borderWidth: StyleSheet.hairlineWidth, gap: 8, padding: 16 },
-  sheetTitle: { fontSize: 18, fontWeight: '900' },
+  sheetTitle: { fontSize: 18, fontWeight: '700' },
   sheetMeta: { fontSize: 13 },
   sheetGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingTop: 8 },
   sheetButton: { borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 10 },
-  sheetButtonText: { fontSize: 13, fontWeight: '800' },
+  sheetButtonInner: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  sheetButtonText: { fontSize: 13, fontWeight: '700' },
 });

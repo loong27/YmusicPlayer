@@ -3,6 +3,7 @@ import { Alert, FlatList, Pressable, StyleSheet, Text, View } from 'react-native
 import { Artwork } from '../components/Artwork';
 import { InfoCard } from '../components/InfoCard';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { Icon, iconNames } from '../constants/icons';
 import { useLocalMusicLibrary } from '../hooks/useLocalMusicLibrary';
 import type { Playlist } from '../models/Playlist';
 import type { Track } from '../models/Track';
@@ -34,7 +35,7 @@ export function PlaylistDetailScreen({ playlist, colors, onBack }: { playlist: P
       <ScreenHeader title={playlist.name} subtitle={`${tracks.length} 首歌曲`} colors={colors} />
       <View style={[styles.hero, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={[styles.cover, { backgroundColor: playlist.fixed ? colors.primarySoft : colors.surfaceStrong, borderColor: colors.border }]}>
-          <Text style={[styles.coverText, { color: playlist.fixed ? colors.primary : colors.text }]}>{playlist.fixed ? '♡' : '♪'}</Text>
+          <Icon name={playlist.fixed ? iconNames.heartOutline : iconNames.musicNote} size={30} color={playlist.fixed ? colors.primary : colors.text} />
         </View>
         <View style={styles.heroInfo}>
           <Text style={[styles.heroTitle, { color: colors.text }]} numberOfLines={1}>{playlist.name}</Text>
@@ -90,17 +91,16 @@ const styles = StyleSheet.create({
   emptyWrap: { paddingHorizontal: 16 },
   hero: { alignItems: 'center', borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 14, padding: 14 },
   cover: { alignItems: 'center', borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, height: 74, justifyContent: 'center', width: 74 },
-  coverText: { fontSize: 30, fontWeight: '900' },
   heroInfo: { flex: 1, gap: 7, minWidth: 0 },
-  heroTitle: { fontSize: 20, fontWeight: '900' },
+  heroTitle: { fontSize: 20, fontWeight: '700' },
   heroMeta: { fontSize: 13 },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   item: { alignItems: 'center', borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 10, marginHorizontal: 16, marginBottom: 10, padding: 10 },
   itemMain: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 11, minWidth: 0 },
   info: { flex: 1, gap: 4, minWidth: 0 },
-  title: { fontSize: 15, fontWeight: '900' },
+  title: { fontSize: 15, fontWeight: '700' },
   meta: { fontSize: 12 },
   button: { borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 12, paddingVertical: 7 },
-  buttonText: { fontSize: 12, fontWeight: '900' },
+  buttonText: { fontSize: 12, fontWeight: '700' },
   disabled: { opacity: 0.45 },
 });
