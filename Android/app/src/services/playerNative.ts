@@ -3,6 +3,14 @@ import type { EmitterSubscription } from 'react-native';
 import type { NativePlayerState, RepeatMode } from '../models/Player';
 import type { Track } from '../models/Track';
 
+export type PlaybackComfortConfig = {
+  audioFocusDuckOnTransient: boolean;
+  audioFocusPauseOnLoss: boolean;
+  audioFocusResumeAfterGain: boolean;
+  bluetoothAutoResumeOnReconnect: boolean;
+  bluetoothAutoResumeWindowMs: number;
+};
+
 const nativePlayer = NativeModules.Player as
   | {
       setQueue(tracks: Track[], startIndex: number): Promise<NativePlayerState>;
@@ -16,6 +24,7 @@ const nativePlayer = NativeModules.Player as
       skipToPrevious(): Promise<NativePlayerState>;
       setRepeatMode(mode: RepeatMode): Promise<NativePlayerState>;
       setShuffleEnabled(enabled: boolean): Promise<NativePlayerState>;
+      configurePlaybackComfort(config: PlaybackComfortConfig): Promise<NativePlayerState>;
       getState(): Promise<NativePlayerState>;
     }
   | undefined;
@@ -42,6 +51,7 @@ export const playerNative = {
   skipToPrevious: () => ensurePlayer().skipToPrevious(),
   setRepeatMode: (mode: RepeatMode) => ensurePlayer().setRepeatMode(mode),
   setShuffleEnabled: (enabled: boolean) => ensurePlayer().setShuffleEnabled(enabled),
+  configurePlaybackComfort: (config: PlaybackComfortConfig) => ensurePlayer().configurePlaybackComfort(config),
   getState: () => ensurePlayer().getState(),
 };
 

@@ -94,6 +94,11 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
   }
 
   init {
+    PlaybackHolder.setDiagnosticSink { type, extras ->
+      emitDiagnostic(type) { map ->
+        extras.forEach { (key, value) -> putDiagnosticValue(map, key, value) }
+      }
+    }
     mainHandler.post {
       player
     }
@@ -103,6 +108,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
 
   override fun invalidate() {
     mainHandler.removeCallbacks(positionTicker)
+    PlaybackHolder.setDiagnosticSink(null)
     boundPlayer?.removeListener(listener)
     boundPlayer = null
     super.invalidate()
@@ -124,6 +130,9 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
         player.setMediaItems(mediaItems, startIndex.coerceIn(0, mediaItems.size - 1), 0L)
         player.prepare()
         startPlaybackService(foreground = true)
+        if (!PlaybackHolder.prepareForPlay()) {
+          throw IllegalStateException("音频通道暂时被其他应用占用")
+        }
         player.play()
         emitQueueChanged()
         emitTrackChanged()
@@ -152,6 +161,9 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
         player.prepare()
         if (playWhenReady) {
           startPlaybackService(foreground = true)
+          if (!PlaybackHolder.prepareForPlay()) {
+            throw IllegalStateException("音频通道暂时被其他应用占用")
+          }
           player.play()
         } else {
           player.pause()
@@ -176,6 +188,9 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
         player.setMediaItem(trackToMediaItem(track))
         player.prepare()
         startPlaybackService(foreground = true)
+        if (!PlaybackHolder.prepareForPlay()) {
+          throw IllegalStateException("音频通道暂时被其他应用占用")
+        }
         player.play()
         emitQueueChanged()
         emitTrackChanged()
@@ -193,16 +208,37 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
       throw IllegalStateException("Queue is empty")
     }
     startPlaybackService(foreground = true)
+    if (!PlaybackHolder.prepareForPlay()) {
+      throw IllegalStateException("音频通道暂时被其他应用占用")
+    }
     play()
   }
 
   @ReactMethod
-  fun pause(promise: Promise) = runPlayerCommand(promise) { pause() }
+  fun pause(promise: Promise) = runPlayerCommand(promise) {
+    PlaybackHolder.markManualPause()
+    pause()
+  }
 
   @ReactMethod
   fun stop(promise: Promise) = runPlayerCommand(promise) {
+    PlaybackHolder.markStopped()
     stop()
     clearMediaItems()
+  }
+
+  @ReactMethod
+  fun configurePlaybackComfort(config: ReadableMap, promise: Promise) {
+    mainHandler.post {
+      PlaybackHolder.configure(PlaybackComfortConfig(
+        audioFocusDuckOnTransient = if (config.hasKey("audioFocusDuckOnTransient")) config.getBoolean("audioFocusDuckOnTransient") else true,
+        audioFocusPauseOnLoss = if (config.hasKey("audioFocusPauseOnLoss")) config.getBoolean("audioFocusPauseOnLoss") else true,
+        audioFocusResumeAfterGain = if (config.hasKey("audioFocusResumeAfterGain")) config.getBoolean("audioFocusResumeAfterGain") else true,
+        bluetoothAutoResumeOnReconnect = if (config.hasKey("bluetoothAutoResumeOnReconnect")) config.getBoolean("bluetoothAutoResumeOnReconnect") else true,
+        bluetoothAutoResumeWindowMs = if (config.hasKey("bluetoothAutoResumeWindowMs")) config.getDouble("bluetoothAutoResumeWindowMs").toLong().coerceIn(60_000L, 10 * 60_000L) else 300_000L,
+      ))
+      promise.resolve(stateMap())
+    }
   }
 
   @ReactMethod
@@ -367,6 +403,19 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
     addOutputRouteSnapshot(map)
     extras?.invoke(map)
     sendEvent("PlayerDiagnostic", map)
+  }
+
+  private fun putDiagnosticValue(map: WritableMap, key: String, value: Any?) {
+    when (value) {
+      is String -> map.putString(key, value)
+      is Boolean -> map.putBoolean(key, value)
+      is Int -> map.putInt(key, value)
+      is Long -> map.putDouble(key, value.toDouble())
+      is Double -> map.putDouble(key, value)
+      is Float -> map.putDouble(key, value.toDouble())
+      null -> map.putNull(key)
+      else -> map.putString(key, value.toString())
+    }
   }
 
   private fun addOutputRouteSnapshot(map: WritableMap) {

@@ -9,6 +9,7 @@ export function DownloadsScreen({ colors }: { colors: AppColorScheme }) {
   const downloads = useDownloads();
   const activeTasks = downloads.tasks.filter(task => task.status !== 'canceled');
   const completedCount = activeTasks.filter(task => task.status === 'completed').length;
+  const failedCount = activeTasks.filter(task => task.status === 'failed').length;
   const runningCount = activeTasks.filter(task => task.status === 'queued' || task.status === 'downloading').length;
 
   const header = useMemo(() => (
@@ -16,11 +17,16 @@ export function DownloadsScreen({ colors }: { colors: AppColorScheme }) {
       <ScreenHeader title="下载" subtitle="查看下载队列、进度和失败任务。" colors={colors} />
       <View style={[styles.hero, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <Text style={[styles.heroTitle, { color: colors.text }]}>离线音乐</Text>
-        <Text style={[styles.heroText, { color: colors.textMuted }]}>任务 {activeTasks.length} 个 · 进行中 {runningCount} 个 · 已完成 {completedCount} 个</Text>
+        <Text style={[styles.heroText, { color: colors.textMuted }]}>任务 {activeTasks.length} 个 · 进行中 {runningCount} 个 · 已完成 {completedCount} 个 · 失败 {failedCount} 个</Text>
         <Text style={[styles.heroNote, { color: colors.textMuted }]}>真实网络下载由原生服务承载；当前页面用于展示任务状态和控制队列。</Text>
+        <View style={styles.row}>
+          {failedCount > 0 ? <ActionButton label="重试全部失败" colors={colors} onPress={downloads.retryFailed} /> : null}
+          {completedCount > 0 ? <ActionButton label="清理已完成" colors={colors} muted onPress={downloads.clearCompleted} /> : null}
+          {failedCount > 0 ? <ActionButton label="清理失败任务" colors={colors} muted onPress={downloads.clearFailed} /> : null}
+        </View>
       </View>
     </View>
-  ), [activeTasks.length, colors, completedCount, runningCount]);
+  ), [activeTasks.length, colors, completedCount, downloads.clearCompleted, downloads.clearFailed, downloads.retryFailed, failedCount, runningCount]);
 
   return (
     <FlatList

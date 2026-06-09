@@ -33,7 +33,13 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
         } else {
           DEFAULT_MIN_DURATION_MS
         }
-        promise.resolve(queryAudio(minDurationMs))
+        val excludeNonMusicByName = options == null || !options.hasKey("excludeNonMusicByName") || options.getBoolean("excludeNonMusicByName")
+        val customExcludeKeywords = if (options != null && options.hasKey("customExcludeKeywords")) {
+          options.getString("customExcludeKeywords").orEmpty()
+        } else {
+          ""
+        }
+        promise.resolve(queryAudio(minDurationMs, excludeNonMusicByName, customExcludeKeywords))
       } catch (error: Exception) {
         promise.reject("E_QUERY_FAILED", "Failed to query local audio MediaStore.", error)
       }
@@ -50,7 +56,7 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
     return reactContext.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
   }
 
-  private fun queryAudio(minDurationMs: Long): WritableNativeArray {
+  private fun queryAudio(minDurationMs: Long, excludeNonMusicByName: Boolean, customExcludeKeywords: String): WritableNativeArray {
     val resolver = reactContext.contentResolver
     val collection = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
     val projection = mutableListOf(
@@ -104,7 +110,7 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
         } else {
           ""
         }
-        if (shouldExcludeByName(title, displayName, relativePath)) {
+        if (shouldExcludeByName(title, displayName, relativePath, excludeNonMusicByName, customExcludeKeywords)) {
           continue
         }
 
@@ -149,12 +155,22 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
     return tracks
   }
 
-  private fun shouldExcludeByName(title: String, displayName: String, relativePath: String): Boolean {
+  private fun shouldExcludeByName(title: String, displayName: String, relativePath: String, excludeNonMusicByName: Boolean, customExcludeKeywords: String): Boolean {
     val name = listOf(title, displayName)
       .joinToString(" ")
       .lowercase()
       .replace(Regex("\\.[a-z0-9]{2,5}$"), "")
     val path = relativePath.lowercase()
+    val customKeywords = customExcludeKeywords
+      .split(',', '\n', '，')
+      .map { it.trim().lowercase() }
+      .filter { it.isNotBlank() }
+    if (customKeywords.any { name.contains(it) || path.contains(it) }) {
+      return true
+    }
+    if (!excludeNonMusicByName) {
+      return false
+    }
 
     val folderHints = listOf(
       "recordings",

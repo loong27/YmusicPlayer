@@ -6,6 +6,7 @@ import {
   requestLocalMusicPermission,
   scanLocalMusic,
   type LocalMusicPermissionStatus,
+  type ScanLocalMusicOptions,
 } from '../services/localMusicNative';
 
 export type LocalMusicLibraryPermissionStatus =
@@ -19,7 +20,7 @@ export type UseLocalMusicLibraryResult = {
   error?: string;
   lastScannedAt?: Date;
   requestPermissionAndScan: () => Promise<void>;
-  refresh: (options?: { minDurationMs?: number }) => Promise<void>;
+  refresh: (options?: ScanLocalMusicOptions) => Promise<void>;
 };
 
 export function useLocalMusicLibrary({ autoScanOnMount = true }: { autoScanOnMount?: boolean } = {}): UseLocalMusicLibraryResult {
@@ -36,7 +37,7 @@ export function useLocalMusicLibrary({ autoScanOnMount = true }: { autoScanOnMou
     isMountedRef.current = false;
   }, []);
 
-  const scan = useCallback(async (options?: { minDurationMs?: number }) => {
+  const scan = useCallback(async (options?: ScanLocalMusicOptions) => {
     if (!isMountedRef.current || isScanningRef.current) {
       return;
     }
@@ -45,7 +46,12 @@ export function useLocalMusicLibrary({ autoScanOnMount = true }: { autoScanOnMou
     setError(undefined);
 
     try {
-      const scanOptions = options || { minDurationMs: (await loadSettings()).minAudioDurationMs };
+      const storedSettings = await loadSettings();
+      const scanOptions = options || {
+        minDurationMs: storedSettings.minAudioDurationMs,
+        excludeNonMusicByName: storedSettings.libraryExcludeNonMusicByName,
+        customExcludeKeywords: storedSettings.libraryCustomExcludeKeywords,
+      };
       const scannedTracks = await scanLocalMusic(scanOptions);
       const scannedAt = new Date();
       if (!isMountedRef.current) {

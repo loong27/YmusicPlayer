@@ -29,6 +29,8 @@ export type PersistedPlayerState = {
 export type PersistedSettings = {
   librarySort: string;
   minAudioDurationMs: number;
+  libraryExcludeNonMusicByName: boolean;
+  libraryCustomExcludeKeywords: string;
   restoreQueueOnLaunch: boolean;
   cloudEnabled: boolean;
   cloudBaseUrl: string;
@@ -55,6 +57,11 @@ export type PersistedSettings = {
   downloadAutoQualityFallback: boolean;
   androidKeepAliveEnabled: boolean;
   androidShowBatteryOptimizationHint: boolean;
+  audioFocusDuckOnTransient: boolean;
+  audioFocusPauseOnLoss: boolean;
+  audioFocusResumeAfterGain: boolean;
+  bluetoothAutoResumeOnReconnect: boolean;
+  bluetoothAutoResumeWindowMs: number;
 };
 
 export type LibraryCache = {
@@ -86,6 +93,8 @@ export type PlayHistoryItem = {
 export const defaultSettings: PersistedSettings = {
   librarySort: 'dateModified',
   minAudioDurationMs: 30_000,
+  libraryExcludeNonMusicByName: true,
+  libraryCustomExcludeKeywords: '',
   restoreQueueOnLaunch: true,
   cloudEnabled: false,
   cloudBaseUrl: '',
@@ -112,6 +121,11 @@ export const defaultSettings: PersistedSettings = {
   downloadAutoQualityFallback: true,
   androidKeepAliveEnabled: true,
   androidShowBatteryOptimizationHint: true,
+  audioFocusDuckOnTransient: true,
+  audioFocusPauseOnLoss: true,
+  audioFocusResumeAfterGain: true,
+  bluetoothAutoResumeOnReconnect: true,
+  bluetoothAutoResumeWindowMs: 300_000,
 };
 
 const audioQualities: AudioQuality[] = ['MP3_128', 'MP3_320', 'FLAC', 'ATMOS', 'ATMOS2'];
@@ -159,6 +173,8 @@ function migrateSettings(value?: Partial<PersistedSettings>): PersistedSettings 
   return {
     librarySort: stringValue(source.librarySort, defaultSettings.librarySort),
     minAudioDurationMs: numberValue(source.minAudioDurationMs, defaultSettings.minAudioDurationMs, 5_000, 10 * 60_000),
+    libraryExcludeNonMusicByName: booleanValue(source.libraryExcludeNonMusicByName, defaultSettings.libraryExcludeNonMusicByName),
+    libraryCustomExcludeKeywords: stringValue(source.libraryCustomExcludeKeywords, defaultSettings.libraryCustomExcludeKeywords).slice(0, 500),
     restoreQueueOnLaunch: booleanValue(source.restoreQueueOnLaunch, defaultSettings.restoreQueueOnLaunch),
     cloudEnabled: booleanValue(source.cloudEnabled, defaultSettings.cloudEnabled),
     cloudBaseUrl: stringValue(source.cloudBaseUrl, defaultSettings.cloudBaseUrl),
@@ -185,6 +201,11 @@ function migrateSettings(value?: Partial<PersistedSettings>): PersistedSettings 
     downloadAutoQualityFallback: booleanValue(source.downloadAutoQualityFallback, defaultSettings.downloadAutoQualityFallback),
     androidKeepAliveEnabled: booleanValue(source.androidKeepAliveEnabled, defaultSettings.androidKeepAliveEnabled),
     androidShowBatteryOptimizationHint: booleanValue(source.androidShowBatteryOptimizationHint, defaultSettings.androidShowBatteryOptimizationHint),
+    audioFocusDuckOnTransient: booleanValue(source.audioFocusDuckOnTransient, defaultSettings.audioFocusDuckOnTransient),
+    audioFocusPauseOnLoss: booleanValue(source.audioFocusPauseOnLoss, defaultSettings.audioFocusPauseOnLoss),
+    audioFocusResumeAfterGain: booleanValue(source.audioFocusResumeAfterGain, defaultSettings.audioFocusResumeAfterGain),
+    bluetoothAutoResumeOnReconnect: booleanValue(source.bluetoothAutoResumeOnReconnect, defaultSettings.bluetoothAutoResumeOnReconnect),
+    bluetoothAutoResumeWindowMs: Math.round(numberValue(source.bluetoothAutoResumeWindowMs, defaultSettings.bluetoothAutoResumeWindowMs, 60_000, 10 * 60_000)),
   };
 }
 

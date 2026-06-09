@@ -4,6 +4,7 @@ import type { DownloadTask } from '../models/DownloadTask';
 import { Artwork } from '../components/Artwork';
 import { InfoCard } from '../components/InfoCard';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { InlineNotice, StatusBadge } from '../components/SettingsControls';
 import { playerGlyphs } from '../constants/playerGlyphs';
 import { useLocalMusicLibrary } from '../hooks/useLocalMusicLibrary';
 import type { Track } from '../models/Track';
@@ -40,11 +41,16 @@ export function SearchScreen({ colors, onBack }: { colors: AppColorScheme; onBac
   }, [library.tracks, trimmedQuery]);
   const results = useMemo(() => [...localResults, ...remoteResults], [localResults, remoteResults]);
   const canCloudSearch = trimmedQuery.length > 0 && !isRemoteLoading;
+  const cloudConfigMessage = getCloudConfigMessage(settings);
 
   const isLatestRemoteSearch = (requestId: number, searchQuery: string) => remoteSearchRequestRef.current === requestId && queryRef.current.trim() === searchQuery;
 
   const runRemoteSearch = async () => {
     if (!canCloudSearch) {
+      return;
+    }
+    if (cloudConfigMessage) {
+      setRemoteError(`${cloudConfigMessage}。请到“我的 > 云端搜索”完成配置。`);
       return;
     }
     const searchQuery = trimmedQuery;
@@ -116,10 +122,11 @@ export function SearchScreen({ colors, onBack }: { colors: AppColorScheme; onBac
         </View>
         <View style={styles.row}>
           <ActionButton label="返回" colors={colors} muted onPress={onBack} />
-          <ActionButton label={isRemoteLoading ? '搜索中' : '云搜索'} colors={colors} disabled={!canCloudSearch} busy={isRemoteLoading} onPress={runRemoteSearch} />
+          <ActionButton label={isRemoteLoading ? '搜索中' : '搜索云端'} colors={colors} disabled={!canCloudSearch} busy={isRemoteLoading} onPress={runRemoteSearch} />
         </View>
-        {remoteError ? <Text style={[styles.error, { color: colors.danger }]}>{remoteError}</Text> : null}
-        <Text style={[styles.hint, { color: colors.textMuted }]}>本地 {localResults.length} 首 · 云端 {remoteResults.length} 首</Text>
+        {cloudConfigMessage ? <InlineNotice tone="warning" message={`${cloudConfigMessage}。点击“搜索云端”会提示去 我的 > 云端搜索 配置。`} colors={colors} /> : null}
+        {remoteError ? <InlineNotice tone="error" message={remoteError} colors={colors} /> : null}
+        <Text style={[styles.hint, { color: colors.textMuted }]}>本地 {localResults.length} 首 · 云端 {remoteResults.length} 首 · 云端来源 {settings.cloudActiveProvider}</Text>
       </View>
     </View>
   );
@@ -133,7 +140,7 @@ export function SearchScreen({ colors, onBack }: { colors: AppColorScheme; onBac
         <View style={styles.emptyWrap}>
           <InfoCard
             title={trimmedQuery ? '暂无匹配结果' : '输入关键词开始搜索'}
-            body={trimmedQuery ? '没有本地匹配结果，可尝试云搜索或换一个关键词。' : '不会自动联网，只有点击云搜索才会请求远端。'}
+            body={trimmedQuery ? '没有本地匹配结果。若云端已配置，可点击“搜索云端”；若未配置，请到 我的 > 云端搜索 设置 Base URL。' : '不会自动联网，只有点击“搜索云端”才会请求远端。'}
             colors={colors}
           />
         </View>
@@ -154,6 +161,16 @@ export function SearchScreen({ colors, onBack }: { colors: AppColorScheme; onBac
   );
 }
 
+function getCloudConfigMessage(settings: ReturnType<typeof useSettings>['settings']): string | undefined {
+  if (!settings.cloudEnabled) {
+    return '云端搜索未启用';
+  }
+  if (!settings.cloudBaseUrl.trim()) {
+    return '云端搜索缺少 Base URL';
+  }
+  return undefined;
+}
+
 function getDownloadTaskForTrack(tasks: DownloadTask[], track: Track, quality: DownloadTask['quality']) {
   const remoteId = track.cloudMatch?.remoteId || track.id;
   const provider = track.cloudMatch?.provider || 'netease';
@@ -162,24 +179,24 @@ function getDownloadTaskForTrack(tasks: DownloadTask[], track: Track, quality: D
 
 function getDownloadButtonState(track: Track, task?: DownloadTask) {
   if (track.source === 'local') {
-    return { label: '本地文件无需下载', text: '本', disabled: true, busy: false };
+    return { label: '本地文件', text: '本地', disabled: true, busy: false, tone: 'info' as const };
   }
   if (!task) {
-    return { label: '下载歌曲', text: '⇩', disabled: false, busy: false };
+    return { label: '下载', text: '下载', disabled: false, busy: false, tone: 'info' as const };
   }
   if (task.status === 'queued') {
-    return { label: '已加入下载队列', text: '…', disabled: true, busy: false };
+    return { label: '排队中', text: '排队', disabled: true, busy: false, tone: 'info' as const };
   }
   if (task.status === 'downloading') {
-    return { label: '下载中', text: '…', disabled: true, busy: true };
+    return { label: '下载中', text: '下载中', disabled: true, busy: true, tone: 'info' as const };
   }
   if (task.status === 'paused') {
-    return { label: '下载已暂停', text: playerGlyphs.pause, disabled: true, busy: false };
+    return { label: '下载已暂停', text: '暂停', disabled: true, busy: false, tone: 'warning' as const };
   }
   if (task.status === 'completed') {
-    return { label: '已下载', text: '✓', disabled: true, busy: false };
+    return { label: '已下载', text: '已下载', disabled: true, busy: false, tone: 'success' as const };
   }
-  return { label: '重试下载', text: '↻', disabled: false, busy: false };
+  return { label: '重试下载', text: '重试', disabled: false, busy: false, tone: 'error' as const };
 }
 
 function TrackResult({ track, colors, downloadTask, onPlay, onPlayNext, onDownload }: { track: Track; colors: AppColorScheme; downloadTask?: DownloadTask; onPlay: () => void; onPlayNext: () => void; onDownload: () => void }) {
@@ -190,12 +207,14 @@ function TrackResult({ track, colors, downloadTask, onPlay, onPlayNext, onDownlo
         <Artwork track={track} colors={colors} size={48} radius={13} />
         <View style={styles.info}>
           <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>{track.title}</Text>
-          <Text style={[styles.meta, { color: colors.textMuted }]} numberOfLines={1}>{track.source === 'remote' ? '云端' : '本地'} · {formatTrackMeta(track)}</Text>
+          <Text style={[styles.meta, { color: colors.textMuted }]} numberOfLines={1}>{track.source === 'remote' ? `云端 · ${track.cloudMatch?.provider || 'unknown'}${track.streamUri ? '' : ' · 需解析'}` : '本地'} · {formatTrackMeta(track)}</Text>
+          <StatusBadge label={track.source === 'remote' ? '云端' : '本地'} tone={track.source === 'remote' ? 'info' : 'success'} colors={colors} />
+          {downloadTask?.error ? <Text style={[styles.error, { color: colors.danger }]} numberOfLines={1}>{downloadTask.error}</Text> : null}
         </View>
       </Pressable>
       <View style={styles.actions}>
         <IconButton label="下首播放" text={playerGlyphs.next} colors={colors} onPress={onPlayNext} />
-        <IconButton label={downloadButton.label} text={downloadButton.text} colors={colors} disabled={downloadButton.disabled} busy={downloadButton.busy} onPress={onDownload} />
+        <DownloadButton label={downloadButton.label} text={downloadButton.text} colors={colors} disabled={downloadButton.disabled} busy={downloadButton.busy} onPress={onDownload} />
       </View>
     </View>
   );
@@ -217,6 +236,15 @@ function IconButton({ label, text, colors, disabled, busy, onPress }: { label: s
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onPress} hitSlop={6} style={[styles.iconButton, { backgroundColor: colors.surfaceStrong, borderColor: colors.border }, disabled ? styles.disabled : null]}>
       <Text style={[styles.iconText, { color: colors.text }]}>{text}</Text>
+    </Pressable>
+  );
+}
+
+function DownloadButton({ label, text, colors, disabled, busy, onPress }: { label: string; text: string; colors: AppColorScheme; disabled?: boolean; busy?: boolean; onPress: () => void }) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, busy }} disabled={disabled} onPress={onPress} hitSlop={6} style={[styles.downloadButton, { backgroundColor: colors.surfaceStrong, borderColor: colors.border }, disabled ? styles.disabled : null]}>
+      {busy ? <ActivityIndicator color={colors.text} size="small" /> : null}
+      <Text style={[styles.downloadText, { color: colors.text }]}>{text}</Text>
     </Pressable>
   );
 }
@@ -244,5 +272,7 @@ const styles = StyleSheet.create({
   buttonText: { fontSize: 13, fontWeight: '900' },
   iconButton: { alignItems: 'center', borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, height: 40, justifyContent: 'center', width: 40 },
   iconText: { fontSize: 13, fontWeight: '900' },
+  downloadButton: { alignItems: 'center', borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 4, minHeight: 40, minWidth: 54, justifyContent: 'center', paddingHorizontal: 10 },
+  downloadText: { fontSize: 12, fontWeight: '900' },
   disabled: { opacity: 0.45 },
 });

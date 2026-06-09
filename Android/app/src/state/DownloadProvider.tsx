@@ -15,6 +15,9 @@ type DownloadContextValue = {
   resume: (taskId: string) => Promise<void>;
   cancel: (taskId: string) => Promise<void>;
   retry: (taskId: string) => Promise<void>;
+  retryFailed: () => Promise<void>;
+  clearCompleted: () => Promise<void>;
+  clearFailed: () => Promise<void>;
 };
 
 const DownloadContext = createContext<DownloadContextValue | undefined>(undefined);
@@ -103,6 +106,15 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
         await startNative({ ...task, status: 'queued', progress: 0, error: undefined });
       }
     },
+    retryFailed: async () => {
+      const failedTasks = tasksRef.current.filter(task => task.status === 'failed');
+      for (const task of failedTasks) {
+        await updateTask(task.id, { status: 'queued', progress: 0, error: undefined });
+        await startNative({ ...task, status: 'queued', progress: 0, error: undefined });
+      }
+    },
+    clearCompleted: () => updateTasks(current => current.filter(task => task.status !== 'completed')),
+    clearFailed: () => updateTasks(current => current.filter(task => task.status !== 'failed' && task.status !== 'canceled')),
   }), [settings, startNative, tasks, updateTask, updateTasks]);
 
   return <DownloadContext.Provider value={value}>{children}</DownloadContext.Provider>;

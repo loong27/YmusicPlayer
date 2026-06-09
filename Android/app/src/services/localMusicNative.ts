@@ -24,8 +24,14 @@ export type NativeLocalTrack = {
   year?: number;
 };
 
+export type ScanLocalMusicOptions = {
+  minDurationMs?: number;
+  excludeNonMusicByName?: boolean;
+  customExcludeKeywords?: string;
+};
+
 type LocalMusicNativeModule = {
-  scanAudio(options?: { minDurationMs?: number }): Promise<NativeLocalTrack[]>;
+  scanAudio(options?: ScanLocalMusicOptions): Promise<NativeLocalTrack[]>;
 };
 
 const nativeLocalMusic = NativeModules.LocalMusic as
@@ -35,7 +41,7 @@ const nativeLocalMusic = NativeModules.LocalMusic as
 export const getLocalMusicPermissionStatus = getAudioPermissionStatus;
 export const requestLocalMusicPermission = requestAudioPermission;
 
-export async function scanLocalMusic(options?: { minDurationMs?: number }): Promise<Track[]> {
+export async function scanLocalMusic(options?: ScanLocalMusicOptions): Promise<Track[]> {
   if (Platform.OS !== 'android') {
     return [];
   }

@@ -41,12 +41,18 @@ export type PlayerDiagnostic = {
   hasBluetoothSco?: boolean;
   hasWiredHeadset?: boolean;
   hasBuiltInSpeaker?: boolean;
+  audioFocusChange?: string;
+  audioRouteEvent?: string;
+  routeType?: string;
+  mediaSessionController?: string;
+  command?: string;
 };
 
 export type PlayerSnapshot = NativePlayerState & {
   queue: Track[];
   currentTrack?: Track;
   lastDiagnostic?: PlayerDiagnostic;
+  diagnosticHistory: PlayerDiagnostic[];
 };
 
 export const emptyPlayerSnapshot: PlayerSnapshot = {
@@ -57,4 +63,5 @@ export const emptyPlayerSnapshot: PlayerSnapshot = {
   repeatMode: 'off',
   shuffleEnabled: false,
   queue: [],
+  diagnosticHistory: [],
 };

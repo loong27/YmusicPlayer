@@ -46,9 +46,16 @@ export type DownloadSettings = {
 export type AndroidMvpSettings = {
   librarySort: string;
   minAudioDurationMs: number;
+  libraryExcludeNonMusicByName: boolean;
+  libraryCustomExcludeKeywords: string;
   restoreQueueOnLaunch: boolean;
   keepAliveEnabled: boolean;
   showBatteryOptimizationHint: boolean;
+  audioFocusDuckOnTransient: boolean;
+  audioFocusPauseOnLoss: boolean;
+  audioFocusResumeAfterGain: boolean;
+  bluetoothAutoResumeOnReconnect: boolean;
+  bluetoothAutoResumeWindowMs: number;
 };
 
 export type AppSettings = {

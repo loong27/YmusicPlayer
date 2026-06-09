@@ -32,6 +32,7 @@ export type PlayerContextValue = PlayerSnapshot & {
 
 const PlayerContext = createContext<PlayerContextValue | undefined>(undefined);
 const POSITION_SAVE_INTERVAL_MS = 15_000;
+const DIAGNOSTIC_HISTORY_LIMIT = 20;
 
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const { settings, isLoading: isSettingsLoading } = useSettings();
@@ -158,10 +159,17 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         }));
       }),
       addPlayerEventListener<{ message?: string }>('PlayerError', event => {
-        setSnapshot(previous => ({ ...previous, playbackState: 'error', error: event.message || '播放失败' }));
+        const diagnostic: PlayerDiagnostic = { type: 'playerError', message: event.message || '播放失败' };
+        setSnapshot(previous => ({
+          ...previous,
+          playbackState: 'error',
+          error: event.message || '播放失败',
+          lastDiagnostic: diagnostic,
+          diagnosticHistory: [diagnostic, ...previous.diagnosticHistory].slice(0, DIAGNOSTIC_HISTORY_LIMIT),
+        }));
       }),
       addPlayerEventListener<PlayerDiagnostic>('PlayerDiagnostic', event => {
-        setSnapshot(previous => ({ ...previous, lastDiagnostic: event }));
+        setSnapshot(previous => ({ ...previous, lastDiagnostic: event, diagnosticHistory: [event, ...previous.diagnosticHistory].slice(0, DIAGNOSTIC_HISTORY_LIMIT) }));
       }),
       addPlayerEventListener<{ currentIndex: number; queueSize: number }>('PlayerQueueChanged', event => {
         setSnapshot(previous => {
@@ -215,6 +223,24 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       persistSnapshot(snapshot);
     }
   }, [persistSnapshot, snapshot]);
+
+  useEffect(() => {
+    playerNative.configurePlaybackComfort({
+      audioFocusDuckOnTransient: settings.audioFocusDuckOnTransient,
+      audioFocusPauseOnLoss: settings.audioFocusPauseOnLoss,
+      audioFocusResumeAfterGain: settings.audioFocusResumeAfterGain,
+      bluetoothAutoResumeOnReconnect: settings.bluetoothAutoResumeOnReconnect,
+      bluetoothAutoResumeWindowMs: settings.bluetoothAutoResumeWindowMs,
+    }).then(applyNativeState).catch(error => {
+      setSnapshot(previous => ({
+        ...previous,
+        lastDiagnostic: {
+          type: 'configurePlaybackComfortFailed',
+          message: error instanceof Error ? error.message : '播放舒适性配置同步失败',
+        },
+      }));
+    });
+  }, [applyNativeState, settings.audioFocusDuckOnTransient, settings.audioFocusPauseOnLoss, settings.audioFocusResumeAfterGain, settings.bluetoothAutoResumeOnReconnect, settings.bluetoothAutoResumeWindowMs]);
 
   const runCommand = useCallback(async (command: () => Promise<NativePlayerState>) => {
     const previousPlaybackState = snapshotRef.current.playbackState;

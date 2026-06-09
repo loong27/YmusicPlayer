@@ -62,12 +62,12 @@ export function MiniPlayer({ colors, onOpen }: { colors: AppColorScheme; onOpen:
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={isPlaying ? '暂停播放' : '开始播放'}
+          accessibilityLabel={isErrored ? '重试播放' : isPlaying ? '暂停播放' : '开始播放'}
           accessibilityState={{ busy: isBusy }}
           onPress={() => runPlayerAction(player.togglePlayPause)}
           style={[styles.playButton, { backgroundColor: colors.primary }]}
         >
-          <Text style={styles.playText}>{isPlaying ? playerGlyphs.pause : playerGlyphs.play}</Text>
+          <Text style={styles.playText}>{isErrored ? '重试' : isPlaying ? playerGlyphs.pause : playerGlyphs.play}</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
   info: { flex: 1, gap: 3, minWidth: 0 },
   title: { fontSize: 15, fontWeight: '800' },
   meta: { fontSize: 12 },
-  playButton: { alignItems: 'center', borderRadius: 999, height: 38, justifyContent: 'center', width: 38 },
+  playButton: { alignItems: 'center', borderRadius: 999, minHeight: 38, justifyContent: 'center', minWidth: 38, paddingHorizontal: 10 },
   nextButton: { alignItems: 'center', borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, height: 34, justifyContent: 'center', width: 34 },
   playText: { color: '#ffffff', fontSize: 15, fontWeight: '900', marginLeft: 1 },
   nextText: { fontSize: 10, fontWeight: '900' },

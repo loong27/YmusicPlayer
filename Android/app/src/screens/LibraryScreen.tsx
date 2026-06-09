@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Artwork } from '../components/Artwork';
 import { InfoCard } from '../components/InfoCard';
+import { InlineNotice, StatusBadge } from '../components/SettingsControls';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { playerGlyphs } from '../constants/playerGlyphs';
 import { useLocalMusicLibrary } from '../hooks/useLocalMusicLibrary';
@@ -93,6 +94,7 @@ export function LibraryScreen({ colors, onOpenSearch, onOpenTrackInfo, onOpenArt
         visibleCount: visibleTracks.length,
         isScanning,
         error,
+        settings,
         lastScannedText,
         hasQuery: query.trim().length > 0,
         requestPermissionAndScan,
@@ -150,7 +152,7 @@ export function LibraryScreen({ colors, onOpenSearch, onOpenTrackInfo, onOpenArt
           <View style={styles.emptyWrap}>
             <InfoCard
               title={tracks.length === 0 ? '未发现本地音乐' : '搜索无结果'}
-              body={tracks.length === 0 ? '系统 MediaStore 当前没有可展示的音乐文件，下拉可重新扫描。' : '请换一个关键词或清空搜索条件。'}
+              body={tracks.length === 0 ? emptyLibraryMessage(settings) : '请换一个关键词或清空搜索条件。'}
               colors={colors}
             />
           </View>
@@ -197,6 +199,7 @@ function renderStatusCards({
   visibleCount,
   isScanning,
   error,
+  settings,
   lastScannedText,
   hasQuery,
   requestPermissionAndScan,
@@ -208,6 +211,7 @@ function renderStatusCards({
   visibleCount: number;
   isScanning: boolean;
   error?: string;
+  settings: ReturnType<typeof useSettings>['settings'];
   lastScannedText: string;
   hasQuery: boolean;
   requestPermissionAndScan: () => Promise<void>;
@@ -244,6 +248,12 @@ function renderStatusCards({
         <Stat label="歌曲" value={tracksCount} colors={colors} />
         <Stat label={hasQuery ? '搜索结果' : '当前显示'} value={visibleCount} colors={colors} />
       </View>
+      <View style={styles.badgeRow}>
+        <StatusBadge label={`过滤 < ${Math.round(settings.minAudioDurationMs / 1000)} 秒`} tone="info" colors={colors} />
+        {settings.libraryExcludeNonMusicByName ? <StatusBadge label="已过滤录音/语音" tone="info" colors={colors} /> : null}
+        {settings.libraryExcludeNonMusicByName ? <StatusBadge label="已过滤铃声/通知音" tone="info" colors={colors} /> : null}
+        {settings.libraryCustomExcludeKeywords.trim() ? <StatusBadge label="自定义关键词过滤" tone="info" colors={colors} /> : null}
+      </View>
       {isScanning ? (
         <View style={styles.scanningRow}>
           <ActivityIndicator color={colors.primary} />
@@ -251,6 +261,7 @@ function renderStatusCards({
         </View>
       ) : null}
       {error ? <Text style={[styles.cardBody, { color: colors.danger }]}>扫描失败：{error}</Text> : null}
+      <InlineNotice tone="info" message={scanRuleMessage(settings)} colors={colors} />
     </View>
   );
 }
@@ -263,6 +274,23 @@ function compareTracks(a: Track, b: Track, mode: SortMode): number {
     return (b.dateModified || 0) - (a.dateModified || 0);
   }
   return String(a[mode] || '').localeCompare(String(b[mode] || ''), 'zh-Hans');
+}
+
+function scanRuleMessage(settings: ReturnType<typeof useSettings>['settings']): string {
+  const rules = [`过滤小于 ${Math.round(settings.minAudioDurationMs / 1000)} 秒的音频`];
+  if (settings.libraryExcludeNonMusicByName) {
+    rules.push('排除明显录音、语音、铃声、通知音等非音乐文件');
+  }
+  if (settings.libraryCustomExcludeKeywords.trim()) {
+    rules.push('应用自定义排除关键词');
+  }
+  return `扫描规则：${rules.join('，')}。`;
+}
+
+function emptyLibraryMessage(settings: ReturnType<typeof useSettings>['settings']): string {
+  const filterText = settings.libraryExcludeNonMusicByName ? '已自动过滤录音、语音、铃声、通知音等非音乐音频；' : '';
+  const customText = settings.libraryCustomExcludeKeywords.trim() ? '已应用自定义排除关键词；' : '';
+  return `没有发现符合音乐规则的文件。${filterText}${customText}如果短音乐未出现，可到“我的 > 曲库扫描”调整过滤规则后重新扫描。`;
 }
 
 function TrackRow({ item, colors, active, liked, onPress, onMore, onToggleLiked }: { item: Track; colors: AppColorScheme; active: boolean; liked: boolean; onPress: () => void; onMore: () => void; onToggleLiked: () => void }) {
@@ -323,6 +351,7 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 17, fontWeight: '800' },
   cardBody: { fontSize: 13, lineHeight: 20 },
   statsRow: { flexDirection: 'row', gap: 10 },
+  badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   statBox: { borderRadius: 16, flex: 1, padding: 12 },
   statValue: { fontSize: 20, fontWeight: '900' },
   statLabel: { fontSize: 12, marginTop: 2 },
