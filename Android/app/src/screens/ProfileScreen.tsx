@@ -10,6 +10,8 @@ import {
   getAppVersion,
   getAudioPermissionStatus,
   getBatteryOptimizationStatus,
+  getCrashLogs,
+  clearCrashLogs,
   getNotificationPermissionStatus,
   openAndroidAppSettings,
   requestAudioPermission,
@@ -37,6 +39,7 @@ export function ProfileScreen({ colors, onOpenPlaylists }: { colors: AppColorSch
   const [testResult, setTestResult] = useState<string>();
   const [cloudTestQuery, setCloudTestQuery] = useState('test');
   const [settingsImportText, setSettingsImportText] = useState('');
+  const [crashLogText, setCrashLogText] = useState<string>();
   const { settings, updateSettings, lastError } = useSettings();
   const collection = useCollection();
   const player = usePlayer();
@@ -93,6 +96,22 @@ export function ProfileScreen({ colors, onOpenPlaylists }: { colors: AppColorSch
   const exportSettings = () => {
     const payload = JSON.stringify({ type: 'ymusic-settings', version: 1, settings }, null, 2);
     Share.share({ message: payload }).catch(error => setInlineError(getErrorMessage(error, '导出设置失败')));
+  };
+
+  const loadCrashLogs = () => {
+    getCrashLogs().then(logs => mountedRef.current && setCrashLogText(logs)).catch(error => setInlineError(getErrorMessage(error, '读取崩溃日志失败')));
+  };
+
+  const shareCrashLogs = () => {
+    if (!crashLogText || crashLogText === '暂无崩溃日志') {
+      loadCrashLogs();
+      return;
+    }
+    Share.share({ message: crashLogText }).catch(error => setInlineError(getErrorMessage(error, '分享崩溃日志失败')));
+  };
+
+  const doClearCrashLogs = () => {
+    clearCrashLogs().then(() => { if (mountedRef.current) setCrashLogText(undefined); }).catch(error => setInlineError(getErrorMessage(error, '清除崩溃日志失败')));
   };
 
   const importSettings = () => {
@@ -223,6 +242,17 @@ export function ProfileScreen({ colors, onOpenPlaylists }: { colors: AppColorSch
             {player.diagnosticHistory.slice(0, 5).map((event, index) => <InfoCard key={`${event.type}-${index}`} title={event.type} body={formatDiagnostic(event)} colors={colors} />)}
           </View>
         ) : <InlineNotice tone="info" message="暂无播放诊断历史。" colors={colors} />}
+        <Text style={[styles.cardBody, { color: colors.textMuted }]}>崩溃日志自动记录 Java/Kotlin 层未捕获异常，app 重启后可查看与导出。</Text>
+        {crashLogText ? (
+          <InfoCard title="崩溃日志" body={crashLogText.length > 8000 ? crashLogText.slice(0, 8000) + '\n...(已截断，请导出查看完整日志)' : crashLogText} colors={colors} />
+        ) : (
+          <InlineNotice tone="info" message="点击「查看崩溃日志」加载最近崩溃记录。" colors={colors} />
+        )}
+        <View style={styles.row}>
+          <ActionButton label="查看崩溃日志" colors={colors} onPress={loadCrashLogs} />
+          <ActionButton label="导出崩溃日志" colors={colors} muted onPress={shareCrashLogs} />
+          <ActionButton label="清除日志" colors={colors} muted onPress={doClearCrashLogs} />
+        </View>
         <SettingInput label="导入设置 JSON" value={settingsImportText} colors={colors} onChangeText={setSettingsImportText} placeholder="粘贴从导出设置得到的 JSON" multiline numberOfLines={5} />
         <InlineNotice tone="warning" message="导入会覆盖同名配置项；密钥也会随导出的 JSON 一起分享，请只发给可信设备。" colors={colors} />
         <View style={styles.row}>

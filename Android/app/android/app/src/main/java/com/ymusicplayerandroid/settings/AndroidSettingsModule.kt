@@ -54,6 +54,26 @@ class AndroidSettingsModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
+  @ReactMethod
+  fun getCrashLogs(promise: Promise) {
+    try {
+      val logs = CrashLogHelper.getCrashLogs()
+      promise.resolve(logs)
+    } catch (error: Exception) {
+      promise.reject("E_CRASH_LOGS", "读取崩溃日志失败", error)
+    }
+  }
+
+  @ReactMethod
+  fun clearCrashLogs(promise: Promise) {
+    try {
+      CrashLogHelper.clearCrashLogs()
+      promise.resolve(true)
+    } catch (error: Exception) {
+      promise.reject("E_CLEAR_CRASH_LOGS", "清除崩溃日志失败", error)
+    }
+  }
+
   private fun statusMap(status: String, ignoring: Boolean) = Arguments.createMap().apply {
     putString("status", status)
     putBoolean("isIgnoringBatteryOptimizations", ignoring)

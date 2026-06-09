@@ -16,6 +16,8 @@ const androidSettings = NativeModules.AndroidSettings as
   | {
       getBatteryOptimizationStatus(): Promise<BatteryOptimizationStatus>;
       requestIgnoreBatteryOptimizations(): Promise<BatteryOptimizationStatus>;
+      getCrashLogs(): Promise<string>;
+      clearCrashLogs(): Promise<boolean>;
     }
   | undefined;
 
@@ -125,4 +127,18 @@ export function getAppVersion(): string {
   return NativeModules.PlatformConstants?.reactNativeVersion
     ? `RN ${NativeModules.PlatformConstants.reactNativeVersion.major}.${NativeModules.PlatformConstants.reactNativeVersion.minor}.${NativeModules.PlatformConstants.reactNativeVersion.patch}`
     : '未知';
+}
+
+export async function getCrashLogs(): Promise<string> {
+  if (Platform.OS !== 'android' || !androidSettings) {
+    return '仅支持 Android 平台';
+  }
+  return androidSettings.getCrashLogs();
+}
+
+export async function clearCrashLogs(): Promise<boolean> {
+  if (Platform.OS !== 'android' || !androidSettings) {
+    return false;
+  }
+  return androidSettings.clearCrashLogs();
 }

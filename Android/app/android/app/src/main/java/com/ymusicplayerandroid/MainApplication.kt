@@ -10,6 +10,7 @@ import com.ymusicplayerandroid.download.DownloadPackage
 import com.ymusicplayerandroid.media.LocalMusicPackage
 import com.ymusicplayerandroid.player.PlayerPackage
 import com.ymusicplayerandroid.settings.AndroidSettingsPackage
+import com.ymusicplayerandroid.settings.CrashLogHelper
 
 class MainApplication : Application(), ReactApplication {
 
@@ -28,6 +29,7 @@ class MainApplication : Application(), ReactApplication {
 
   override fun onCreate() {
     super.onCreate()
+    CrashLogHelper.install(this)
     loadReactNative(this)
   }
 }
