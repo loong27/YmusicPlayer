@@ -19,12 +19,32 @@ export type NativePlayerState = {
   currentTrackId?: string;
   repeatMode: RepeatMode;
   shuffleEnabled: boolean;
+  error?: string;
+};
+
+export type PlayerDiagnostic = {
+  type: string;
+  playbackState?: string;
+  nativePlaybackState?: string;
+  isPlaying?: boolean;
+  currentIndex?: number;
+  positionMs?: number;
+  durationMs?: number;
+  message?: string;
+  errorCode?: number;
+  errorCodeName?: string;
+  cause?: string;
+  reason?: string;
+  hasBluetoothA2dp?: boolean;
+  hasBluetoothSco?: boolean;
+  hasWiredHeadset?: boolean;
+  hasBuiltInSpeaker?: boolean;
 };
 
 export type PlayerSnapshot = NativePlayerState & {
   queue: Track[];
   currentTrack?: Track;
-  error?: string;
+  lastDiagnostic?: PlayerDiagnostic;
 };
 
 export const emptyPlayerSnapshot: PlayerSnapshot = {

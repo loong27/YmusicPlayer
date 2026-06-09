@@ -1,6 +1,9 @@
 package com.ymusicplayerandroid.player
 
+import android.content.Context
 import android.content.Intent
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -21,6 +24,7 @@ import com.facebook.react.modules.core.DeviceEventManagerModule
 
 class PlayerModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
   private val mainHandler = Handler(Looper.getMainLooper())
+  private var lastError: PlaybackException? = null
   private val player: Player
     get() = PlaybackHolder.getOrCreatePlayer(reactContext)
   private val positionTicker = object : Runnable {
@@ -32,18 +36,33 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
 
   private val listener = object : Player.Listener {
     override fun onPlaybackStateChanged(playbackState: Int) {
+      if (playbackState == Player.STATE_BUFFERING || playbackState == Player.STATE_READY) {
+        lastError = null
+      }
       emitState()
+      emitDiagnostic("playbackStateChanged") { map ->
+        map.putString("nativePlaybackState", playbackState.toPlaybackStateName())
+      }
       updatePositionTicker()
     }
 
     override fun onIsPlayingChanged(isPlaying: Boolean) {
+      if (isPlaying) {
+        lastError = null
+      }
       emitState()
+      emitDiagnostic("isPlayingChanged") { map ->
+        map.putBoolean("isPlaying", isPlaying)
+      }
       updatePositionTicker()
     }
 
     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
       emitTrackChanged()
       emitQueueChanged()
+      emitDiagnostic("mediaItemTransition") { map ->
+        map.putString("reason", reason.toTransitionReasonName())
+      }
     }
 
     override fun onRepeatModeChanged(repeatMode: Int) {
@@ -55,9 +74,12 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
     }
 
     override fun onPlayerError(error: PlaybackException) {
-      val map = Arguments.createMap()
-      map.putString("message", error.message ?: "Playback failed")
+      lastError = error
+      val map = errorMap(error)
       sendEvent("PlayerError", map)
+      emitDiagnostic("playerError") { diagnosticMap ->
+        putErrorFields(diagnosticMap, error)
+      }
       emitState()
     }
   }
@@ -88,6 +110,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
       try {
         val mediaItems = tracks.toMediaItems()
         require(mediaItems.isNotEmpty()) { "Queue is empty" }
+        lastError = null
         player.setMediaItems(mediaItems, startIndex.coerceIn(0, mediaItems.size - 1), 0L)
         player.prepare()
         startPlaybackService(foreground = true)
@@ -107,6 +130,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
     mainHandler.post {
       try {
         val mediaItems = tracks.toMediaItems()
+        lastError = null
         if (mediaItems.isEmpty()) {
           player.clearMediaItems()
           promise.resolve(stateMap())
@@ -133,6 +157,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
   fun playTrack(track: ReadableMap, promise: Promise) {
     mainHandler.post {
       try {
+        lastError = null
         player.setMediaItem(trackToMediaItem(track))
         player.prepare()
         startPlaybackService(foreground = true)
@@ -219,6 +244,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
     mainHandler.post {
       try {
         player.command()
+        lastError = null
         emitState()
         emitPosition()
         promise.resolve(stateMap())
@@ -253,13 +279,16 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
 
   private fun stateMap(): WritableMap {
     val map = Arguments.createMap()
-    val playbackState = when (player.playbackState) {
-      Player.STATE_BUFFERING -> "buffering"
-      Player.STATE_READY -> if (player.isPlaying) "playing" else "paused"
-      Player.STATE_ENDED -> "ended"
+    val error = lastError
+    val playbackState = when {
+      error != null -> "error"
+      player.playbackState == Player.STATE_BUFFERING -> "buffering"
+      player.playbackState == Player.STATE_READY -> if (player.isPlaying) "playing" else "paused"
+      player.playbackState == Player.STATE_ENDED -> "ended"
       else -> if (player.mediaItemCount > 0) "paused" else "idle"
     }
     map.putString("playbackState", playbackState)
+    error?.let { map.putString("error", it.message ?: "Playback failed") }
     map.putDouble("positionMs", player.currentPosition.coerceAtLeast(0L).toDouble())
     map.putDouble("durationMs", player.duration.takeIf { it > 0 }?.toDouble() ?: 0.0)
     map.putInt("currentIndex", if (player.mediaItemCount > 0) player.currentMediaItemIndex else -1)
@@ -271,6 +300,22 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
       else -> "off"
     })
     return map
+  }
+
+  private fun errorMap(error: PlaybackException): WritableMap {
+    val map = Arguments.createMap()
+    putErrorFields(map, error)
+    return map
+  }
+
+  private fun putErrorFields(map: WritableMap, error: PlaybackException) {
+    map.putString("message", error.message ?: "Playback failed")
+    map.putInt("errorCode", error.errorCode)
+    map.putString("errorCodeName", error.errorCodeName)
+    map.putString("cause", error.cause?.javaClass?.simpleName ?: error.cause?.message)
+    map.putString("playbackState", player.playbackState.toPlaybackStateName())
+    map.putInt("currentIndex", if (player.mediaItemCount > 0) player.currentMediaItemIndex else -1)
+    map.putDouble("positionMs", player.currentPosition.coerceAtLeast(0L).toDouble())
   }
 
   private fun emitState() = sendEvent("PlayerStateChanged", stateMap())
@@ -294,6 +339,44 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
     map.putInt("currentIndex", if (player.mediaItemCount > 0) player.currentMediaItemIndex else -1)
     map.putInt("queueSize", player.mediaItemCount)
     sendEvent("PlayerQueueChanged", map)
+  }
+
+  private fun emitDiagnostic(type: String, extras: ((WritableMap) -> Unit)? = null) {
+    val map = Arguments.createMap()
+    map.putString("type", type)
+    map.putString("playbackState", player.playbackState.toPlaybackStateName())
+    map.putBoolean("isPlaying", player.isPlaying)
+    map.putInt("currentIndex", if (player.mediaItemCount > 0) player.currentMediaItemIndex else -1)
+    map.putDouble("positionMs", player.currentPosition.coerceAtLeast(0L).toDouble())
+    map.putDouble("durationMs", player.duration.takeIf { it > 0 }?.toDouble() ?: 0.0)
+    addOutputRouteSnapshot(map)
+    extras?.invoke(map)
+    sendEvent("PlayerDiagnostic", map)
+  }
+
+  private fun addOutputRouteSnapshot(map: WritableMap) {
+    val audioManager = reactContext.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+    val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+    map.putBoolean("hasBluetoothA2dp", devices.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP })
+    map.putBoolean("hasBluetoothSco", devices.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO })
+    map.putBoolean("hasWiredHeadset", devices.any { it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES || it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET })
+    map.putBoolean("hasBuiltInSpeaker", devices.any { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER })
+  }
+
+  private fun Int.toPlaybackStateName(): String = when (this) {
+    Player.STATE_BUFFERING -> "buffering"
+    Player.STATE_READY -> "ready"
+    Player.STATE_ENDED -> "ended"
+    Player.STATE_IDLE -> "idle"
+    else -> "unknown"
+  }
+
+  private fun Int.toTransitionReasonName(): String = when (this) {
+    Player.MEDIA_ITEM_TRANSITION_REASON_AUTO -> "auto"
+    Player.MEDIA_ITEM_TRANSITION_REASON_SEEK -> "seek"
+    Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT -> "repeat"
+    Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED -> "playlistChanged"
+    else -> "unknown"
   }
 
   private fun updatePositionTicker() {

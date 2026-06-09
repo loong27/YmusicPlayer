@@ -134,6 +134,11 @@ export async function savePlayerState(state: PersistedPlayerState): Promise<void
   await writeJson(keys.player, migratePlayerState(state) || state);
 }
 
+export async function clearPlayerState(): Promise<void> {
+  await ensureStorageMigrated();
+  await AsyncStorage.removeItem(keys.player);
+}
+
 export async function loadSettings(): Promise<PersistedSettings> {
   await ensureStorageMigrated();
   return migrateSettings(await readJson<Partial<PersistedSettings>>(keys.settings));

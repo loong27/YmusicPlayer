@@ -1,11 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import type { NativePlayerState, PlayerSnapshot, RepeatMode } from '../models/Player';
+import type { AppStateStatus } from 'react-native';
+import type { NativePlayerState, PlayerDiagnostic, PlayerSnapshot, RepeatMode } from '../models/Player';
 import { emptyPlayerSnapshot } from '../models/Player';
 import type { Track } from '../models/Track';
 import { requestNotificationPermission } from '../services/androidPermissions';
 import { addPlayerEventListener, playerNative } from '../services/playerNative';
-import { loadPlayerState, savePlayerState } from '../services/storage';
+import { clearPlayerState, loadPlayerState, savePlayerState } from '../services/storage';
 import { useCollection } from './CollectionProvider';
 import { useSettings } from './SettingsProvider';
 
@@ -35,6 +36,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const { recordPlay } = useCollection();
   const [snapshot, setSnapshot] = useState<PlayerSnapshot>(emptyPlayerSnapshot);
   const snapshotRef = useRef(snapshot);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
   const lastPositionSaveAtRef = useRef(0);
 
   useEffect(() => {
@@ -43,7 +45,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   const persistSnapshot = useCallback((state: PlayerSnapshot = snapshotRef.current) => {
     if (state.queue.length === 0) {
-      return Promise.resolve();
+      return clearPlayerState().catch(() => undefined);
     }
     lastPositionSaveAtRef.current = Date.now();
     return savePlayerState({
@@ -59,9 +61,25 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     setSnapshot(previous => {
       const currentIndex = state.currentIndex >= 0 ? state.currentIndex : previous.currentIndex;
       const currentTrack = previous.queue[currentIndex];
-      return { ...previous, ...state, currentIndex, currentTrack, error: undefined };
+      const shouldClearError = state.playbackState === 'playing' || state.playbackState === 'buffering' || (state.playbackState === 'paused' && previous.playbackState !== 'error');
+      const error = state.error || (shouldClearError ? undefined : previous.error);
+      return { ...previous, ...state, currentIndex, currentTrack, error };
     });
   }, []);
+
+  const resyncNativeState = useCallback(async () => {
+    try {
+      applyNativeState(await playerNative.getState());
+    } catch (error) {
+      setSnapshot(previous => ({
+        ...previous,
+        lastDiagnostic: {
+          type: 'getStateFailed',
+          message: error instanceof Error ? error.message : '同步原生播放状态失败',
+        },
+      }));
+    }
+  }, [applyNativeState]);
 
   useEffect(() => {
     if (isSettingsLoading) {
@@ -133,11 +151,39 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       addPlayerEventListener<{ message?: string }>('PlayerError', event => {
         setSnapshot(previous => ({ ...previous, playbackState: 'error', error: event.message || '播放失败' }));
       }),
+      addPlayerEventListener<PlayerDiagnostic>('PlayerDiagnostic', event => {
+        setSnapshot(previous => ({ ...previous, lastDiagnostic: event }));
+      }),
+      addPlayerEventListener<{ currentIndex: number; queueSize: number }>('PlayerQueueChanged', event => {
+        setSnapshot(previous => {
+          if (event.queueSize === 0) {
+            return { ...previous, ...emptyPlayerSnapshot, currentTrack: undefined, error: undefined };
+          }
+          const currentIndex = event.currentIndex >= 0 && event.currentIndex < previous.queue.length ? event.currentIndex : previous.currentIndex;
+          return {
+            ...previous,
+            currentIndex,
+            currentTrack: previous.queue[currentIndex],
+            lastDiagnostic: event.queueSize !== previous.queue.length
+              ? { type: 'queueSizeMismatch', currentIndex: event.currentIndex, message: `Native queue size ${event.queueSize} differs from JS queue size ${previous.queue.length}` }
+              : previous.lastDiagnostic,
+          };
+        });
+        if (event.queueSize === 0) {
+          clearPlayerState().catch(() => undefined);
+        } else if (event.queueSize !== snapshotRef.current.queue.length) {
+          resyncNativeState();
+        }
+      }),
     ];
 
     const appStateSubscription = AppState.addEventListener('change', state => {
+      const previousState = appStateRef.current;
+      appStateRef.current = state;
       if (state !== 'active') {
         persistSnapshot();
+      } else if (previousState === 'background' || previousState === 'inactive') {
+        resyncNativeState();
       }
     });
 
@@ -147,10 +193,11 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       appStateSubscription.remove();
       persistSnapshot();
     };
-  }, [applyNativeState, isSettingsLoading, persistSnapshot, settings.restoreQueueOnLaunch]);
+  }, [applyNativeState, isSettingsLoading, persistSnapshot, resyncNativeState, settings.restoreQueueOnLaunch]);
 
   useEffect(() => {
     if (snapshot.queue.length === 0) {
+      persistSnapshot(snapshot);
       return;
     }
     const shouldSaveImmediately = snapshot.playbackState === 'paused' || snapshot.playbackState === 'ended' || snapshot.playbackState === 'error';
@@ -171,16 +218,19 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         playbackState: previousPlaybackState === 'loading' ? 'idle' : previousPlaybackState,
         error: error instanceof Error ? error.message : '播放命令失败',
       }));
+      throw error;
     }
   }, [applyNativeState]);
 
   const replaceQueue = useCallback(async (queue: Track[], startIndex: number, autoPlay = true) => {
     if (queue.length === 0) {
-      setSnapshot(previous => ({ ...previous, ...emptyPlayerSnapshot }));
+      setSnapshot(previous => ({ ...previous, ...emptyPlayerSnapshot, currentTrack: undefined, error: undefined }));
       await playerNative.stop().catch(() => undefined);
+      await clearPlayerState().catch(() => undefined);
       return;
     }
     const safeIndex = Math.min(Math.max(startIndex, 0), queue.length - 1);
+    const previousSnapshot = snapshotRef.current;
     setSnapshot(previous => ({
       ...previous,
       queue,
@@ -189,12 +239,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       playbackState: autoPlay ? 'loading' : 'paused',
       error: undefined,
     }));
-    if (autoPlay) {
-      await runCommand(() => playerNative.setQueue(queue, safeIndex));
-    } else {
-      await runCommand(() => playerNative.restoreQueue(queue, safeIndex, 0, snapshotRef.current.repeatMode, snapshotRef.current.shuffleEnabled));
+    try {
+      if (autoPlay) {
+        await runCommand(() => playerNative.setQueue(queue, safeIndex));
+      } else {
+        await runCommand(() => playerNative.restoreQueue(queue, safeIndex, 0, snapshotRef.current.repeatMode, snapshotRef.current.shuffleEnabled));
+      }
+      await persistSnapshot({ ...snapshotRef.current, queue, currentIndex: safeIndex, currentTrack: queue[safeIndex], positionMs: 0 });
+    } catch (error) {
+      setSnapshot({
+        ...previousSnapshot,
+        error: error instanceof Error ? error.message : '播放命令失败',
+      });
+      throw error;
     }
-    await persistSnapshot({ ...snapshotRef.current, queue, currentIndex: safeIndex, currentTrack: queue[safeIndex], positionMs: 0 });
   }, [persistSnapshot, runCommand]);
 
   const playQueue = useCallback(async (queue: Track[], startIndex: number) => {
@@ -224,10 +282,16 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }));
     if (queue.length === 0) {
       await playerNative.stop().catch(() => undefined);
+      await clearPlayerState().catch(() => undefined);
       return;
     }
-    await playerNative.restoreQueue(queue, safeIndex, snapshotRef.current.positionMs, snapshotRef.current.repeatMode, snapshotRef.current.shuffleEnabled).catch(() => undefined);
-    await persistSnapshot({ ...snapshotRef.current, queue, currentIndex: safeIndex, currentTrack: queue[safeIndex] });
+    try {
+      await playerNative.restoreQueue(queue, safeIndex, snapshotRef.current.positionMs, snapshotRef.current.repeatMode, snapshotRef.current.shuffleEnabled);
+      await persistSnapshot({ ...snapshotRef.current, queue, currentIndex: safeIndex, currentTrack: queue[safeIndex] });
+    } catch (error) {
+      setSnapshot(previous => ({ ...previous, error: error instanceof Error ? error.message : '同步播放队列失败' }));
+      throw error;
+    }
   }, [persistSnapshot]);
 
   const value = useMemo<PlayerContextValue>(() => ({

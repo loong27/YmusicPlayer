@@ -99,6 +99,7 @@ object PlaybackHolder {
         .build()
       it.setAudioAttributes(audioAttributes, true)
       it.setHandleAudioBecomingNoisy(true)
+      it.setWakeMode(C.WAKE_MODE_LOCAL)
       it.repeatMode = Player.REPEAT_MODE_OFF
       player = it
     }
