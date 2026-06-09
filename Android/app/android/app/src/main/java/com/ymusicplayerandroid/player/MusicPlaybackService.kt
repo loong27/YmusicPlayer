@@ -1,5 +1,8 @@
 package com.ymusicplayerandroid.player
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -12,6 +15,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import androidx.core.app.NotificationCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -48,6 +52,7 @@ class MusicPlaybackService : MediaSessionService() {
 
   override fun onCreate() {
     super.onCreate()
+    createNotificationChannel()
     val player = PlaybackHolder.getOrCreatePlayer(this)
     player.addListener(listener)
     mediaSession = MediaSession.Builder(this, player)
@@ -57,6 +62,11 @@ class MusicPlaybackService : MediaSessionService() {
       put("mediaSessionController", packageName)
       put("command", "sessionCreated")
     }
+  }
+
+  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    startForeground(NOTIFICATION_ID, buildForegroundNotification())
+    return super.onStartCommand(intent, flags, startId)
   }
 
   override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
@@ -111,6 +121,26 @@ class MusicPlaybackService : MediaSessionService() {
 
   companion object {
     private const val IDLE_RELEASE_DELAY_MS = 300_000L
+    private const val NOTIFICATION_ID = 1
+    private const val CHANNEL_ID = "ymusic_playback"
+  }
+
+  private fun createNotificationChannel() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+      val channel = NotificationChannel(CHANNEL_ID, "音乐播放", NotificationManager.IMPORTANCE_LOW)
+      channel.description = "显示当前播放状态与控制按钮"
+      channel.setShowBadge(false)
+      getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+    }
+  }
+
+  private fun buildForegroundNotification(): Notification {
+    return NotificationCompat.Builder(this, CHANNEL_ID)
+      .setContentTitle("YMusicPlayer")
+      .setContentText("正在准备播放...")
+      .setSmallIcon(android.R.drawable.ic_media_play)
+      .setOngoing(true)
+      .build()
   }
 }
 
