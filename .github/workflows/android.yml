@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: android-${{ github.ref }}
@@ -89,12 +89,3 @@ jobs:
           name: android-release-apk-${{ github.run_number }}
           path: artifacts/*-release.apk
           if-no-files-found: error
-
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "${{ github.ref_name }}" artifacts/*.apk \
-            --title "YMusicPlayerAndroid ${{ github.ref_name }}" \
-            --notes "Android APK build for ${{ github.ref_name }}."

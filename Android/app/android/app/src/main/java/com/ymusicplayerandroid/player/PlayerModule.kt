@@ -129,7 +129,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
         lastError = null
         player.setMediaItems(mediaItems, startIndex.coerceIn(0, mediaItems.size - 1), 0L)
         player.prepare()
-        beginPlayback()
+        player.beginPlayback()
         emitQueueChanged()
         emitTrackChanged()
         emitState()
@@ -156,7 +156,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
         player.shuffleModeEnabled = shuffleEnabled
         player.prepare()
         if (playWhenReady) {
-          beginPlayback()
+          player.beginPlayback()
         } else {
           player.pause()
           startPlaybackService(foreground = false, throwOnFailure = false)
@@ -179,7 +179,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
         lastError = null
         player.setMediaItem(trackToMediaItem(track))
         player.prepare()
-        beginPlayback()
+        player.beginPlayback()
         emitQueueChanged()
         emitTrackChanged()
         emitState()
@@ -417,14 +417,18 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
       }
       try {
         addOutputRouteSnapshot(map)
-      } catch (ignored: Exception) = Unit
+      } catch (ignored: Exception) {
+        Unit
+      }
       try {
         extras?.invoke(map)
       } catch (error: Exception) {
         map.putString("extrasError", error.javaClass.simpleName)
       }
       sendEvent("PlayerDiagnostic", map)
-    } catch (ignored: Exception) = Unit
+    } catch (ignored: Exception) {
+      Unit
+    }
   }
 
   private fun putDiagnosticValue(map: WritableMap, key: String, value: Any?) {
@@ -479,7 +483,9 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
           .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
           .emit(eventName, params)
       }
-    } catch (ignored: Exception) = Unit
+    } catch (ignored: Exception) {
+      Unit
+    }
   }
 
   private fun startPlaybackService(foreground: Boolean, throwOnFailure: Boolean = foreground) {
