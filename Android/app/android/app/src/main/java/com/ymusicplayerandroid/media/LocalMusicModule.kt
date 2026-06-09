@@ -56,6 +56,7 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
     val projection = mutableListOf(
       MediaStore.Audio.Media._ID,
       MediaStore.Audio.Media.TITLE,
+      MediaStore.Audio.Media.DISPLAY_NAME,
       MediaStore.Audio.Media.ARTIST,
       MediaStore.Audio.Media.ALBUM,
       MediaStore.Audio.Media.ALBUM_ID,
@@ -79,6 +80,7 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
     resolver.query(collection, projection.toTypedArray(), selection, selectionArgs, sortOrder)?.use { cursor ->
       val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
       val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+      val displayNameColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
       val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
       val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
       val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
@@ -95,13 +97,24 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
       }
 
       while (cursor.moveToNext()) {
+        val title = cursor.getString(titleColumn).orEmpty()
+        val displayName = cursor.getString(displayNameColumn).orEmpty()
+        val relativePath = if (relativePathColumn >= 0 && !cursor.isNull(relativePathColumn)) {
+          cursor.getString(relativePathColumn).orEmpty()
+        } else {
+          ""
+        }
+        if (shouldExcludeByName(title, displayName, relativePath)) {
+          continue
+        }
+
         val id = cursor.getLong(idColumn)
         val albumId = cursor.getLong(albumIdColumn)
         val contentUri = ContentUris.withAppendedId(collection, id).toString()
         val map = WritableNativeMap()
 
         map.putString("id", id.toString())
-        map.putString("title", cursor.getString(titleColumn).orEmpty())
+        map.putString("title", title)
         map.putString("artist", cursor.getString(artistColumn).orEmpty())
         map.putString("album", cursor.getString(albumColumn).orEmpty())
         map.putDouble("durationMs", cursor.getLong(durationColumn).toDouble())
@@ -125,8 +138,8 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
         if (!cursor.isNull(yearColumn)) {
           map.putInt("year", cursor.getInt(yearColumn))
         }
-        if (relativePathColumn >= 0 && !cursor.isNull(relativePathColumn)) {
-          map.putString("relativePath", cursor.getString(relativePathColumn))
+        if (relativePath.isNotBlank()) {
+          map.putString("relativePath", relativePath)
         }
 
         tracks.pushMap(map)
@@ -134,6 +147,67 @@ class LocalMusicModule(private val reactContext: ReactApplicationContext) : Reac
     }
 
     return tracks
+  }
+
+  private fun shouldExcludeByName(title: String, displayName: String, relativePath: String): Boolean {
+    val name = listOf(title, displayName)
+      .joinToString(" ")
+      .lowercase()
+      .replace(Regex("\\.[a-z0-9]{2,5}$"), "")
+    val path = relativePath.lowercase()
+
+    val folderHints = listOf(
+      "recordings",
+      "voice recorder",
+      "sound_recorder",
+      "call recordings",
+      "ringtones",
+      "notifications",
+      "alarms",
+      "录音",
+      "语音",
+      "通话录音",
+      "铃声",
+      "通知",
+      "闹钟",
+      "提示音",
+    )
+    if (folderHints.any { path.contains(it) }) {
+      return true
+    }
+
+    val obviousNameHints = listOf(
+      "通话录音",
+      "电话录音",
+      "会议录音",
+      "录音文件",
+      "微信语音",
+      "语音消息",
+      "屏幕录制",
+      "通知音",
+      "提示音",
+      "系统音效",
+      "闹钟铃声",
+      "call recording",
+      "voice note",
+      "voice memo",
+      "voice message",
+      "screen recording",
+      "notification sound",
+      "ringtone",
+      "alarm tone",
+    )
+    if (obviousNameHints.any { name.contains(it) }) {
+      return true
+    }
+
+    val obviousGeneratedNames = listOf(
+      Regex("^(record|recording|rec|voice|voicenote|voice_note|call|mic|audio_record|sound_record|screenrecord)[-_\\s]?\\d"),
+      Regex("^aud[-_]\\d{8}"),
+      Regex("^ptt[-_]\\d"),
+      Regex("^\\d{8}[-_]\\d{6}.*(record|voice|call|录音|语音)"),
+    )
+    return obviousGeneratedNames.any { it.containsMatchIn(name) }
   }
 
   companion object {
