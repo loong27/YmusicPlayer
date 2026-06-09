@@ -6,7 +6,7 @@ import type { Track } from '../models/Track';
 const nativePlayer = NativeModules.Player as
   | {
       setQueue(tracks: Track[], startIndex: number): Promise<NativePlayerState>;
-      restoreQueue(tracks: Track[], currentIndex: number, positionMs: number, repeatMode: RepeatMode, shuffleEnabled: boolean): Promise<NativePlayerState>;
+      restoreQueue(tracks: Track[], currentIndex: number, positionMs: number, repeatMode: RepeatMode, shuffleEnabled: boolean, playWhenReady: boolean): Promise<NativePlayerState>;
       playTrack(track: Track): Promise<NativePlayerState>;
       play(): Promise<NativePlayerState>;
       pause(): Promise<NativePlayerState>;
@@ -31,8 +31,8 @@ function ensurePlayer() {
 
 export const playerNative = {
   setQueue: (tracks: Track[], startIndex: number) => ensurePlayer().setQueue(tracks, startIndex),
-  restoreQueue: (tracks: Track[], currentIndex: number, positionMs: number, repeatMode: RepeatMode, shuffleEnabled: boolean) =>
-    ensurePlayer().restoreQueue(tracks, currentIndex, positionMs, repeatMode, shuffleEnabled),
+  restoreQueue: (tracks: Track[], currentIndex: number, positionMs: number, repeatMode: RepeatMode, shuffleEnabled: boolean, playWhenReady: boolean) =>
+    ensurePlayer().restoreQueue(tracks, currentIndex, positionMs, repeatMode, shuffleEnabled, playWhenReady),
   playTrack: (track: Track) => ensurePlayer().playTrack(track),
   play: () => ensurePlayer().play(),
   pause: () => ensurePlayer().pause(),

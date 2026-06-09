@@ -126,7 +126,7 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
   }
 
   @ReactMethod
-  fun restoreQueue(tracks: ReadableArray, currentIndex: Int, positionMs: Double, repeatMode: String, shuffleEnabled: Boolean, promise: Promise) {
+  fun restoreQueue(tracks: ReadableArray, currentIndex: Int, positionMs: Double, repeatMode: String, shuffleEnabled: Boolean, playWhenReady: Boolean, promise: Promise) {
     mainHandler.post {
       try {
         val mediaItems = tracks.toMediaItems()
@@ -140,8 +140,13 @@ class PlayerModule(private val reactContext: ReactApplicationContext) : ReactCon
         player.repeatMode = repeatMode.toNativeRepeatMode()
         player.shuffleModeEnabled = shuffleEnabled
         player.prepare()
-        player.pause()
-        startPlaybackService(foreground = false)
+        if (playWhenReady) {
+          startPlaybackService(foreground = true)
+          player.play()
+        } else {
+          player.pause()
+          startPlaybackService(foreground = false)
+        }
         emitQueueChanged()
         emitTrackChanged()
         emitState()

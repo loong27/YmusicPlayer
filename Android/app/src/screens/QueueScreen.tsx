@@ -7,6 +7,7 @@ import { playerGlyphs } from '../constants/playerGlyphs';
 import { usePlayer } from '../state/PlayerProvider';
 import type { AppColorScheme } from '../theme/colors';
 import { formatTrackMeta } from '../utils/library';
+import { runPlayerAction } from '../utils/playerUi';
 
 export function QueueScreen({ colors, onBack }: { colors: AppColorScheme; onBack: () => void }) {
   const player = usePlayer();
@@ -16,13 +17,13 @@ export function QueueScreen({ colors, onBack }: { colors: AppColorScheme; onBack
     }
     Alert.alert('清空队列', '确定清空当前播放队列吗？', [
       { text: '取消', style: 'cancel' },
-      { text: '清空', style: 'destructive', onPress: () => player.clearQueue() },
+      { text: '清空', style: 'destructive', onPress: () => runPlayerAction(player.clearQueue) },
     ]);
   };
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader title="播放队列" subtitle="按顺序播放；可上移、下移、移除或清空。" colors={colors} />
+      <ScreenHeader title="播放队列" subtitle="按顺序播放；可点击歌曲、上移、下移、移除或清空。" colors={colors} />
       <View style={styles.content}>
         <View style={[styles.summary, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View>
@@ -34,6 +35,7 @@ export function QueueScreen({ colors, onBack }: { colors: AppColorScheme; onBack
             <ActionButton label="清空" colors={colors} muted disabled={player.queue.length === 0} onPress={clearQueue} />
           </View>
         </View>
+        {player.error ? <Text style={[styles.error, { color: colors.danger }]}>{player.error}</Text> : null}
         <FlatList
           data={player.queue}
           keyExtractor={(item, index) => `${item.id}-${index}`}
@@ -42,15 +44,26 @@ export function QueueScreen({ colors, onBack }: { colors: AppColorScheme; onBack
             const active = index === player.currentIndex;
             return (
               <View style={[styles.item, { backgroundColor: active ? colors.primarySoft : colors.surface, borderColor: active ? colors.primary : colors.border }]}>
-                <Artwork track={item} colors={colors} size={48} radius={13} />
-                <View style={styles.info}>
-                  <Text style={[styles.title, { color: active ? colors.primary : colors.text }]} numberOfLines={1}>{item.title}</Text>
-                  <Text style={[styles.meta, { color: colors.textMuted }]} numberOfLines={1}>{formatTrackMeta(item)}</Text>
-                </View>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`播放 ${item.title}`}
+                  accessibilityState={{ selected: active }}
+                  onPress={() => runPlayerAction(() => player.playQueueItem(index))}
+                  style={styles.itemMain}
+                >
+                  <Artwork track={item} colors={colors} size={48} radius={13} />
+                  <View style={styles.info}>
+                    <View style={styles.titleRow}>
+                      <Text style={[styles.title, { color: active ? colors.primary : colors.text }]} numberOfLines={1}>{item.title}</Text>
+                      {active ? <Text style={[styles.activeBadge, { backgroundColor: colors.primary }]}>播放中</Text> : null}
+                    </View>
+                    <Text style={[styles.meta, { color: colors.textMuted }]} numberOfLines={1}>{formatTrackMeta(item)}</Text>
+                  </View>
+                </Pressable>
                 <View style={styles.actions}>
-                  <TextButton label={playerGlyphs.up} accessibilityLabel="上移" colors={colors} disabled={index === 0} onPress={() => player.moveQueueItem(index, Math.max(0, index - 1))} />
-                  <TextButton label={playerGlyphs.down} accessibilityLabel="下移" colors={colors} disabled={index === player.queue.length - 1} onPress={() => player.moveQueueItem(index, Math.min(player.queue.length - 1, index + 1))} />
-                  <TextButton label="移除" colors={colors} danger onPress={() => player.removeFromQueue(index)} />
+                  <TextButton label={playerGlyphs.up} accessibilityLabel="上移" colors={colors} disabled={index === 0} onPress={() => runPlayerAction(() => player.moveQueueItem(index, Math.max(0, index - 1)))} />
+                  <TextButton label={playerGlyphs.down} accessibilityLabel="下移" colors={colors} disabled={index === player.queue.length - 1} onPress={() => runPlayerAction(() => player.moveQueueItem(index, Math.min(player.queue.length - 1, index + 1)))} />
+                  <TextButton label="移除" colors={colors} danger onPress={() => runPlayerAction(() => player.removeFromQueue(index))} />
                 </View>
               </View>
             );
@@ -86,10 +99,14 @@ const styles = StyleSheet.create({
   summaryMeta: { fontSize: 12, marginTop: 3 },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   item: { alignItems: 'center', borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 10, marginBottom: 10, padding: 12 },
+  itemMain: { alignItems: 'center', flex: 1, flexDirection: 'row', gap: 10, minWidth: 0 },
   info: { flex: 1, gap: 4, minWidth: 0 },
-  title: { fontSize: 15, fontWeight: '900' },
+  titleRow: { alignItems: 'center', flexDirection: 'row', gap: 8, minWidth: 0 },
+  title: { flex: 1, fontSize: 15, fontWeight: '900' },
+  activeBadge: { borderRadius: 999, color: '#ffffff', fontSize: 10, fontWeight: '900', overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 3 },
   meta: { fontSize: 12 },
   actions: { alignItems: 'center', flexDirection: 'row', gap: 6 },
+  error: { fontSize: 13, textAlign: 'center' },
   button: { borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14, paddingVertical: 8 },
   buttonText: { fontSize: 13, fontWeight: '900' },
   textButton: { alignItems: 'center', borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, minHeight: 34, minWidth: 34, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 6 },

@@ -56,6 +56,7 @@ function AppContent() {
   const collection = useCollection();
   const safeAreaInsets = useSafeAreaInsets();
   const topScreen = stack[stack.length - 1];
+  const isNowPlaying = topScreen?.name === 'nowPlaying';
   const goBack = () => setStack(previous => previous.slice(0, -1));
   const push = (screen: StackScreen) => setStack(previous => [...previous, screen]);
 
@@ -72,7 +73,7 @@ function AppContent() {
 
   const screen = topScreen ? (() => {
     if (topScreen.name === 'nowPlaying') {
-      return <NowPlayingScreen colors={colors} onOpenQueue={() => push({ name: 'queue' })} />;
+      return <NowPlayingScreen colors={colors} onBack={goBack} onOpenQueue={() => push({ name: 'queue' })} />;
     }
     if (topScreen.name === 'queue') {
       return <QueueScreen colors={colors} onBack={goBack} />;
@@ -112,18 +113,20 @@ function AppContent() {
     <SafeAreaView edges={['top']} style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       <View style={styles.content}>{screen}</View>
-      <View style={{ backgroundColor: colors.background, paddingBottom: safeAreaInsets.bottom }}>
-        <MiniPlayer colors={colors} onOpen={() => push({ name: 'nowPlaying' })} />
-        <TabBar
-          tabs={tabs}
-          activeTab={activeTab}
-          colors={colors}
-          onTabPress={tab => {
-            setStack([]);
-            setActiveTab(tab);
-          }}
-        />
-      </View>
+      {!isNowPlaying ? (
+        <View style={{ backgroundColor: colors.background, paddingBottom: safeAreaInsets.bottom }}>
+          <MiniPlayer colors={colors} onOpen={() => push({ name: 'nowPlaying' })} />
+          <TabBar
+            tabs={tabs}
+            activeTab={activeTab}
+            colors={colors}
+            onTabPress={tab => {
+              setStack([]);
+              setActiveTab(tab);
+            }}
+          />
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }

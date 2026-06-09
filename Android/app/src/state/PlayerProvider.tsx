@@ -12,6 +12,7 @@ import { useSettings } from './SettingsProvider';
 
 export type PlayerContextValue = PlayerSnapshot & {
   playQueue: (queue: Track[], startIndex: number) => Promise<void>;
+  playQueueItem: (index: number) => Promise<void>;
   replaceQueue: (queue: Track[], startIndex: number, autoPlay?: boolean) => Promise<void>;
   addToQueue: (track: Track) => Promise<void>;
   playNext: (track: Track) => Promise<void>;
@@ -100,6 +101,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
             persisted.positionMs,
             persisted.repeatMode,
             persisted.shuffleEnabled,
+            false,
           );
           if (isMounted) {
             setSnapshot(previous => ({
@@ -243,7 +245,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       if (autoPlay) {
         await runCommand(() => playerNative.setQueue(queue, safeIndex));
       } else {
-        await runCommand(() => playerNative.restoreQueue(queue, safeIndex, 0, snapshotRef.current.repeatMode, snapshotRef.current.shuffleEnabled));
+        await runCommand(() => playerNative.restoreQueue(queue, safeIndex, 0, snapshotRef.current.repeatMode, snapshotRef.current.shuffleEnabled, false));
       }
       await persistSnapshot({ ...snapshotRef.current, queue, currentIndex: safeIndex, currentTrack: queue[safeIndex], positionMs: 0 });
     } catch (error) {
@@ -273,12 +275,18 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   }, [recordPlay, replaceQueue]);
 
   const syncQueue = useCallback(async (queue: Track[], currentIndex: number) => {
+    const previousSnapshot = snapshotRef.current;
     const safeIndex = queue.length === 0 ? -1 : Math.min(Math.max(currentIndex, 0), queue.length - 1);
+    const nextTrack = safeIndex >= 0 ? queue[safeIndex] : undefined;
+    const wasPlaying = previousSnapshot.playbackState === 'playing' || previousSnapshot.playbackState === 'buffering';
+    const shouldKeepPosition = Boolean(previousSnapshot.currentTrack?.id && nextTrack?.id === previousSnapshot.currentTrack.id);
+    const positionMs = shouldKeepPosition ? previousSnapshot.positionMs : 0;
     setSnapshot(previous => ({
       ...previous,
       queue,
       currentIndex: safeIndex,
-      currentTrack: safeIndex >= 0 ? queue[safeIndex] : undefined,
+      currentTrack: nextTrack,
+      positionMs,
     }));
     if (queue.length === 0) {
       await playerNative.stop().catch(() => undefined);
@@ -286,17 +294,26 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      await playerNative.restoreQueue(queue, safeIndex, snapshotRef.current.positionMs, snapshotRef.current.repeatMode, snapshotRef.current.shuffleEnabled);
-      await persistSnapshot({ ...snapshotRef.current, queue, currentIndex: safeIndex, currentTrack: queue[safeIndex] });
+      await playerNative.restoreQueue(queue, safeIndex, positionMs, previousSnapshot.repeatMode, previousSnapshot.shuffleEnabled, wasPlaying);
+      await persistSnapshot({ ...snapshotRef.current, queue, currentIndex: safeIndex, currentTrack: nextTrack, positionMs });
     } catch (error) {
       setSnapshot(previous => ({ ...previous, error: error instanceof Error ? error.message : '同步播放队列失败' }));
       throw error;
     }
   }, [persistSnapshot]);
 
+  const playQueueItem = useCallback(async (index: number) => {
+    const currentSnapshot = snapshotRef.current;
+    if (currentSnapshot.queue.length === 0 || index < 0 || index >= currentSnapshot.queue.length) {
+      return;
+    }
+    await playQueue(currentSnapshot.queue, index);
+  }, [playQueue]);
+
   const value = useMemo<PlayerContextValue>(() => ({
     ...snapshot,
     playQueue,
+    playQueueItem,
     replaceQueue,
     addToQueue: (track: Track) => syncQueue([...snapshot.queue, track], snapshot.currentIndex >= 0 ? snapshot.currentIndex : 0),
     playNext: (track: Track) => {
@@ -347,7 +364,7 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     previous: () => runCommand(playerNative.skipToPrevious).then(() => persistSnapshot()),
     setRepeatMode: (mode: RepeatMode) => runCommand(() => playerNative.setRepeatMode(mode)).then(() => persistSnapshot()),
     setShuffleEnabled: (enabled: boolean) => runCommand(() => playerNative.setShuffleEnabled(enabled)).then(() => persistSnapshot()),
-  }), [persistSnapshot, playQueue, replaceQueue, runCommand, snapshot, syncQueue]);
+  }), [persistSnapshot, playQueue, playQueueItem, replaceQueue, runCommand, snapshot, syncQueue]);
 
   return <PlayerContext.Provider value={value}>{children}</PlayerContext.Provider>;
 }
