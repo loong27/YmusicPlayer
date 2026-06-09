@@ -26,7 +26,11 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
   }, [tasks]);
 
   const updateTasks = useCallback(async (updater: (current: DownloadTask[]) => DownloadTask[]) => {
-    const next = updater(tasksRef.current);
+    const current = tasksRef.current;
+    const next = updater(current);
+    if (next === current) {
+      return;
+    }
     tasksRef.current = next;
     setTasks(next);
     await saveDownloadTasks(next);
@@ -47,7 +51,10 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
       const nativeState = await downloadNative.enqueue(task);
       await updateTask(task.id, { status: 'downloading', ...nativeState, error: undefined });
     } catch (error) {
-      await updateTask(task.id, { status: 'failed', error: error instanceof Error ? error.message : '启动下载失败' });
+      const message = error instanceof Error && error.message.includes('native module is not registered')
+        ? '下载服务暂不可用，请稍后重试。'
+        : error instanceof Error ? error.message : '启动下载失败';
+      await updateTask(task.id, { status: 'failed', error: message });
     }
   }, [updateTask]);
 
@@ -55,6 +62,14 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
     tasks,
     enqueue: async track => {
       const task = createDownloadTask(track);
+      const existing = tasksRef.current.find(item => item.remoteId === task.remoteId && item.quality === task.quality && item.status !== 'canceled');
+      if (existing) {
+        if (existing.status === 'failed') {
+          await updateTask(existing.id, { status: 'queued', progress: 0, error: undefined });
+          await startNative({ ...existing, status: 'queued', progress: 0, error: undefined });
+        }
+        return;
+      }
       await updateTasks(current => [task, ...current]);
       await startNative(task);
     },

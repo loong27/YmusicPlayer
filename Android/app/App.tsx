@@ -112,7 +112,7 @@ function AppContent() {
     <SafeAreaView edges={['top']} style={[styles.root, { backgroundColor: colors.background }]}>
       <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} backgroundColor={colors.background} />
       <View style={styles.content}>{screen}</View>
-      <View style={{ paddingBottom: safeAreaInsets.bottom }}>
+      <View style={{ backgroundColor: colors.background, paddingBottom: safeAreaInsets.bottom }}>
         <MiniPlayer colors={colors} onOpen={() => push({ name: 'nowPlaying' })} />
         <TabBar
           tabs={tabs}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Track } from '../models/Track';
 import { loadLibraryCache, loadSettings, saveLibraryCache } from '../services/storage';
 import {
@@ -22,15 +22,25 @@ export type UseLocalMusicLibraryResult = {
   refresh: (options?: { minDurationMs?: number }) => Promise<void>;
 };
 
-export function useLocalMusicLibrary(): UseLocalMusicLibraryResult {
+export function useLocalMusicLibrary({ autoScanOnMount = true }: { autoScanOnMount?: boolean } = {}): UseLocalMusicLibraryResult {
   const [permissionStatus, setPermissionStatus] =
     useState<LocalMusicLibraryPermissionStatus>('checking');
   const [tracks, setTracks] = useState<Track[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState<string>();
   const [lastScannedAt, setLastScannedAt] = useState<Date>();
+  const isMountedRef = useRef(true);
+  const isScanningRef = useRef(false);
+
+  useEffect(() => () => {
+    isMountedRef.current = false;
+  }, []);
 
   const scan = useCallback(async (options?: { minDurationMs?: number }) => {
+    if (!isMountedRef.current || isScanningRef.current) {
+      return;
+    }
+    isScanningRef.current = true;
     setIsScanning(true);
     setError(undefined);
 
@@ -38,6 +48,9 @@ export function useLocalMusicLibrary(): UseLocalMusicLibraryResult {
       const scanOptions = options || { minDurationMs: (await loadSettings()).minAudioDurationMs };
       const scannedTracks = await scanLocalMusic(scanOptions);
       const scannedAt = new Date();
+      if (!isMountedRef.current) {
+        return;
+      }
       setTracks(scannedTracks);
       setLastScannedAt(scannedAt);
       await saveLibraryCache({
@@ -46,11 +59,17 @@ export function useLocalMusicLibrary(): UseLocalMusicLibraryResult {
         tracks: scannedTracks,
       });
     } catch (scanError) {
+      if (!isMountedRef.current) {
+        return;
+      }
       setError(
         scanError instanceof Error ? scanError.message : '扫描本地音乐失败',
       );
     } finally {
-      setIsScanning(false);
+      isScanningRef.current = false;
+      if (isMountedRef.current) {
+        setIsScanning(false);
+      }
     }
   }, []);
 
@@ -71,7 +90,7 @@ export function useLocalMusicLibrary(): UseLocalMusicLibraryResult {
         }
 
         setPermissionStatus(status);
-        if (status === 'granted') {
+        if (status === 'granted' && autoScanOnMount) {
           await scan();
         }
       } catch (permissionError) {
@@ -91,11 +110,17 @@ export function useLocalMusicLibrary(): UseLocalMusicLibraryResult {
     return () => {
       isMounted = false;
     };
-  }, [scan]);
+  }, [autoScanOnMount, scan]);
 
   const requestPermissionAndScan = useCallback(async () => {
+    if (!isMountedRef.current) {
+      return;
+    }
     setError(undefined);
     const status = await requestLocalMusicPermission();
+    if (!isMountedRef.current) {
+      return;
+    }
     setPermissionStatus(status);
 
     if (status === 'granted') {

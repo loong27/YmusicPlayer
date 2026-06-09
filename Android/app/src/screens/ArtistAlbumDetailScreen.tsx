@@ -1,63 +1,97 @@
 import React, { useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Artwork } from '../components/Artwork';
 import { InfoCard } from '../components/InfoCard';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { useLocalMusicLibrary } from '../hooks/useLocalMusicLibrary';
 import type { Track } from '../models/Track';
 import { usePlayer } from '../state/PlayerProvider';
 import type { AppColorScheme } from '../theme/colors';
+import { formatTrackMeta, getTrackAlbumName, getTrackArtistName } from '../utils/library';
 
 export function ArtistDetailScreen({ artist, colors, onBack }: { artist: string; colors: AppColorScheme; onBack: () => void }) {
-  const library = useLocalMusicLibrary();
+  const library = useLocalMusicLibrary({ autoScanOnMount: false });
   const player = usePlayer();
-  const tracks = useMemo(() => library.tracks.filter(track => (track.artist || '未知艺术家') === artist), [artist, library.tracks]);
-  const albums = [...new Set(tracks.map(track => track.album || '未知专辑'))];
-  return <TrackGroupScreen title={artist} subtitle={`${tracks.length} 首歌曲 · ${albums.length} 张专辑`} tracks={tracks} colors={colors} onBack={onBack} onPlay={player.playQueue} />;
+  const tracks = useMemo(() => library.tracks.filter(track => getTrackArtistName(track) === artist), [artist, library.tracks]);
+  const albums = useMemo(() => [...new Set(tracks.map(getTrackAlbumName))], [tracks]);
+  return <TrackGroupScreen title={artist} subtitle={`${tracks.length} 首歌曲 · ${albums.length} 张专辑`} kind="艺人" tracks={tracks} colors={colors} onBack={onBack} onPlay={player.playQueue} />;
 }
 
 export function AlbumDetailScreen({ album, colors, onBack }: { album: string; colors: AppColorScheme; onBack: () => void }) {
-  const library = useLocalMusicLibrary();
+  const library = useLocalMusicLibrary({ autoScanOnMount: false });
   const player = usePlayer();
-  const tracks = useMemo(() => library.tracks.filter(track => (track.album || '未知专辑') === album), [album, library.tracks]);
-  return <TrackGroupScreen title={album} subtitle={`${tracks.length} 首歌曲`} tracks={tracks} colors={colors} onBack={onBack} onPlay={player.playQueue} />;
+  const tracks = useMemo(() => library.tracks.filter(track => getTrackAlbumName(track) === album), [album, library.tracks]);
+  return <TrackGroupScreen title={album} subtitle={`${tracks.length} 首歌曲`} kind="专辑" tracks={tracks} colors={colors} onBack={onBack} onPlay={player.playQueue} />;
 }
 
-function TrackGroupScreen({ title, subtitle, tracks, colors, onBack, onPlay }: { title: string; subtitle: string; tracks: Track[]; colors: AppColorScheme; onBack: () => void; onPlay: (queue: Track[], index: number) => Promise<void> }) {
-  return (
-    <View style={styles.screen}>
+function TrackGroupScreen({ title, subtitle, kind, tracks, colors, onBack, onPlay }: { title: string; subtitle: string; kind: string; tracks: Track[]; colors: AppColorScheme; onBack: () => void; onPlay: (queue: Track[], index: number) => Promise<void> }) {
+  const coverTrack = tracks[0];
+  const header = (
+    <View style={styles.headerContent}>
       <ScreenHeader title={title} subtitle={subtitle} colors={colors} />
-      <View style={styles.content}>
-        <View style={styles.row}>
-          <ActionButton label="返回" colors={colors} onPress={onBack} />
-          <ActionButton label="播放全部" colors={colors} onPress={() => onPlay(tracks, 0)} />
+      <View style={[styles.hero, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+        <Artwork track={coverTrack} colors={colors} size={74} radius={18} />
+        <View style={styles.heroInfo}>
+          <Text style={[styles.kind, { color: colors.primary }]}>{kind}</Text>
+          <Text style={[styles.heroTitle, { color: colors.text }]} numberOfLines={1}>{title}</Text>
+          <Text style={[styles.heroMeta, { color: colors.textMuted }]}>{subtitle}</Text>
+          <View style={styles.row}>
+            <ActionButton label="返回" colors={colors} muted onPress={onBack} />
+            <ActionButton label="播放全部" colors={colors} disabled={tracks.length === 0} onPress={() => onPlay(tracks, 0)} />
+          </View>
         </View>
-        <FlatList
-          data={tracks}
-          keyExtractor={item => item.id}
-          ListEmptyComponent={<InfoCard title="暂无歌曲" body="当前分组没有可播放歌曲。" colors={colors} />}
-          renderItem={({ item, index }) => (
-            <Pressable accessibilityRole="button" onPress={() => onPlay(tracks, index)} style={[styles.item, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>{item.title}</Text>
-              <Text style={[styles.meta, { color: colors.textMuted }]} numberOfLines={1}>{item.artist} · {item.album || '未知专辑'}</Text>
-            </Pressable>
-          )}
-        />
       </View>
     </View>
   );
+
+  return (
+    <FlatList
+      data={tracks}
+      keyExtractor={item => item.id}
+      ListHeaderComponent={header}
+      ListEmptyComponent={(
+        <View style={styles.emptyWrap}>
+          <InfoCard title="暂无歌曲" body="当前分组没有可播放歌曲。" colors={colors} />
+        </View>
+      )}
+      contentContainerStyle={styles.listContent}
+      renderItem={({ item, index }) => (
+        <Pressable accessibilityRole="button" accessibilityLabel={`播放 ${item.title}`} onPress={() => onPlay(tracks, index)} style={[styles.item, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Artwork track={item} colors={colors} size={44} radius={12} />
+          <View style={styles.info}>
+            <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>{item.title}</Text>
+            <Text style={[styles.meta, { color: colors.textMuted }]} numberOfLines={1}>{formatTrackMeta(item)}</Text>
+          </View>
+        </Pressable>
+      )}
+    />
+  );
 }
 
-function ActionButton({ label, colors, onPress }: { label: string; colors: AppColorScheme; onPress: () => void }) {
-  return <Pressable accessibilityRole="button" onPress={onPress} style={[styles.button, { backgroundColor: colors.primary }]}><Text style={styles.buttonText}>{label}</Text></Pressable>;
+function ActionButton({ label, colors, muted, disabled, onPress }: { label: string; colors: AppColorScheme; muted?: boolean; disabled?: boolean; onPress: () => void }) {
+  const textColor = { color: muted ? colors.text : '#ffffff' };
+  return (
+    <Pressable accessibilityRole="button" disabled={disabled} onPress={onPress} style={[styles.button, { backgroundColor: muted ? colors.surfaceStrong : colors.primary, borderColor: colors.border }, disabled ? styles.disabled : null]}>
+      <Text style={[styles.buttonText, textColor]}>{label}</Text>
+    </Pressable>
+  );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  content: { flex: 1, gap: 12, padding: 16 },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  item: { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, gap: 5, marginBottom: 10, padding: 14 },
-  title: { fontSize: 15, fontWeight: '800' },
+  listContent: { paddingBottom: 16 },
+  headerContent: { gap: 14, padding: 16 },
+  emptyWrap: { paddingHorizontal: 16 },
+  hero: { alignItems: 'center', borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 14, padding: 14 },
+  heroInfo: { flex: 1, gap: 5, minWidth: 0 },
+  kind: { fontSize: 12, fontWeight: '900' },
+  heroTitle: { fontSize: 20, fontWeight: '900' },
+  heroMeta: { fontSize: 13 },
+  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingTop: 3 },
+  item: { alignItems: 'center', borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, flexDirection: 'row', gap: 11, marginHorizontal: 16, marginBottom: 10, padding: 10 },
+  info: { flex: 1, gap: 4, minWidth: 0 },
+  title: { fontSize: 15, fontWeight: '900' },
   meta: { fontSize: 12 },
-  button: { borderRadius: 999, paddingHorizontal: 14, paddingVertical: 8 },
-  buttonText: { color: '#ffffff', fontSize: 13, fontWeight: '800' },
+  button: { borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 13, paddingVertical: 8 },
+  buttonText: { fontSize: 12, fontWeight: '900' },
+  disabled: { opacity: 0.45 },
 });

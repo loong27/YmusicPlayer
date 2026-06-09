@@ -12,27 +12,27 @@ export type AppColorScheme = {
 };
 
 export const lightColors: AppColorScheme = {
-  background: '#f4f6fb',
+  background: '#eef8ff',
   surface: '#ffffff',
-  surfaceStrong: '#eef2f8',
-  text: 'rgba(0, 0, 0, 0.86)',
-  textMuted: 'rgba(0, 0, 0, 0.58)',
-  border: 'rgba(0, 0, 0, 0.08)',
-  primary: '#007aff',
-  primarySoft: 'rgba(0, 122, 255, 0.12)',
+  surfaceStrong: '#e3f4ff',
+  text: 'rgba(9, 24, 42, 0.9)',
+  textMuted: 'rgba(9, 24, 42, 0.58)',
+  border: 'rgba(0, 145, 214, 0.12)',
+  primary: '#00a8ff',
+  primarySoft: 'rgba(0, 168, 255, 0.14)',
   danger: '#ef4444',
   success: '#10b981',
 };
 
 export const darkColors: AppColorScheme = {
-  background: '#101218',
-  surface: '#1d2026',
-  surfaceStrong: '#282d36',
-  text: 'rgba(255, 255, 255, 0.9)',
-  textMuted: 'rgba(255, 255, 255, 0.64)',
-  border: 'rgba(255, 255, 255, 0.12)',
-  primary: '#8ec1ff',
-  primarySoft: 'rgba(0, 122, 255, 0.22)',
+  background: '#071521',
+  surface: '#0f2535',
+  surfaceStrong: '#16384f',
+  text: 'rgba(242, 250, 255, 0.94)',
+  textMuted: 'rgba(242, 250, 255, 0.62)',
+  border: 'rgba(125, 218, 255, 0.16)',
+  primary: '#25d1ff',
+  primarySoft: 'rgba(37, 209, 255, 0.18)',
   danger: '#f87171',
   success: '#34d399',
 };

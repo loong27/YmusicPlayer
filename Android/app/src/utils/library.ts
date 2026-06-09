@@ -15,10 +15,26 @@ export function getTrackFolder(track: Track): string {
   return parts[parts.length - 1] || path;
 }
 
+export function getTrackArtistName(track: Track): string {
+  return track.artist || '未知艺术家';
+}
+
+export function getTrackAlbumName(track: Track): string {
+  return track.album || '未知专辑';
+}
+
+export function formatTrackMeta(track: Track): string {
+  return `${getTrackArtistName(track)} · ${getTrackAlbumName(track)}`;
+}
+
+export function clampProgress(value: number): number {
+  return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
+}
+
 export function groupTracks(tracks: Track[], mode: 'artist' | 'album' | 'folder'): LibraryGroup[] {
   const groups = new Map<string, Track[]>();
   tracks.forEach(track => {
-    const key = mode === 'artist' ? (track.artist || '未知艺术家') : mode === 'album' ? (track.album || '未知专辑') : getTrackFolder(track);
+    const key = mode === 'artist' ? getTrackArtistName(track) : mode === 'album' ? getTrackAlbumName(track) : getTrackFolder(track);
     groups.set(key, [...(groups.get(key) || []), track]);
   });
   return [...groups.entries()]
