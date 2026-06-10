@@ -17,7 +17,6 @@ import {
   Square,
   Settings2,
   ChevronDown,
-  Disc3,
   Volume2,
   Moon,
   Sun,
@@ -2489,14 +2488,11 @@ function App() {
                                 className="h-full w-full object-cover"
                               />
                             ) : (
-                              <div className="flex h-full w-full items-center justify-center">
-                                <motion.div
-                                  animate={isPlaying ? { rotate: 360 } : { rotate: 0 }}
-                                  transition={isPlaying ? { repeat: Infinity, duration: 6, ease: 'linear' } : { duration: 0.2 }}
-                                >
-                                  <Disc3 size={64} className="text-black/65 dark:text-white/80" />
-                                </motion.div>
-                              </div>
+                              <img
+                                src="default-cover.png"
+                                alt="cover"
+                                className="h-full w-full object-cover"
+                              />
                             )}
                           </div>
                         </div>
@@ -2700,7 +2696,7 @@ function App() {
                         {cloudDetail.coverDataUrl ? (
                           <img src={cloudDetail.coverDataUrl} alt="cover" className="h-full w-full object-cover" />
                         ) : (
-                          <div className="flex h-full w-full items-center justify-center"><Disc3 size={70} className="text-black/55 dark:text-white/70" /></div>
+                          <img src="default-cover.png" alt="cover" className="h-full w-full object-cover" />
                         )}
                       </div>
                     </div>
